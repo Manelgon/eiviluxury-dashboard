@@ -11,9 +11,9 @@ Proyecto Supabase: `zohkencmpagiwxyljsiq` · Requiere haber aplicado antes los S
 | 10 | `patch-pacientes.sql` | Renombrado: tabla `clientes`→`pacientes`, columnas `cliente_id`→`paciente_id`, `confirmada_cliente`→`confirmada_paciente`, vista recreada. ⚠️ Requiere desplegar a la vez panel y bot renombrados | ✅ |
 | 11 | `patch-verificacion-identidad.sql` | Verificación de identidad en solicitudes ARCO (quién, cuándo, método) — obligatoria para resolver acceso/portabilidad | ✅ |
 | 12 | `patch-documentos-rgpd.sql` | Documentos normativos editables (RAT, runbook de brechas, DPIA, subencargados, política IA) pre-rellenados para la clínica | ✅ |
-| 13 | `patch-firmados.sql` | Archivo de firmados: bucket privado `rgpd-firmados` en Storage + campos firmado_path/at/por en documentos | ⬜ pendiente |
+| 13 | `patch-firmados.sql` | Archivo de firmados: bucket privado `rgpd-firmados` en Storage + campos firmado_path/at/por en documentos | ✅ |
 | 14 | `patch-historia-clinica.sql` | HISTORIA CLÍNICA fundacional: asignación paciente-médico-área (único por área), catálogo CIE-10, consultas con VERSIONADO inmutable (trigger + motivo de edición obligatorio), diagnósticos por consulta + lista de problemas auto-sincronizada, alergias transversales, constantes, registro de accesos. CIE-10-ES 2026 importado (102.448 filas) | ✅ |
-| 15 | `patch-lista-espera.sql` | Tabla `lista_espera` (paciente/área/médico preferido/preferencia, única pendiente por paciente+área): el bot apunta cuando el médico de referencia no tiene hueco esta semana; el médico la gestiona desde su perfil del panel | ⬜ pendiente |
+| 15 | `patch-lista-espera.sql` | Tabla `lista_espera` (paciente/área/médico preferido/preferencia, única pendiente por paciente+área): el bot apunta cuando el médico de referencia no tiene hueco esta semana; el médico la gestiona desde su perfil del panel | ✅ |
 
 > Nota: los patches 1-9 ya aplicados conservan la nomenclatura antigua ("cliente") en su texto — NO se editan (regla del índice). El nombre actual de las tablas es el que fija el patch 10.
 

@@ -55,6 +55,7 @@ export default function Page() {
                     { id: "horarios", t: "Horarios" },
                     { id: "bloqueos", t: "Vacaciones y bloqueos" },
                     { id: "areas", t: "Áreas de la clínica" },
+                    { id: "medicos", t: "Médicos y enfermería" },
                     { id: "derechos", t: "Derechos RGPD" },
                     { id: "docs-rgpd", t: "Documentos RGPD" },
                     ...(me.rol === "admin" || me.rol === "direccion"

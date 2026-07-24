@@ -9,6 +9,12 @@ export const dynamic = "force-dynamic";
 const json = (data: unknown, status = 200) => NextResponse.json(data, { status });
 const err = (mensaje: string, status = 400) => json({ error: mensaje }, status);
 
+/** Error al pedir datos clínicos sin ámbito: distingue el médico sin vincular del resto de roles. */
+const errAmbito = (u: UsuarioPanel) =>
+  u.rol === "medico" && !u.medico_id
+    ? err("Tu usuario médico aún no está vinculado a su ficha de médico. Dirección o admin deben vincularlo en Configuración → Usuarios y permisos (y crear antes la ficha en Configuración → Médicos si no existe).", 403)
+    : err("Sin acceso a datos clínicos", 403);
+
 /**
  * Ámbito clínico del usuario:
  *  - admin/direccion → acceso total (areas = null)
@@ -92,12 +98,63 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
 
     // ---------- Agenda ----------
     case "medicos": {
-      const { data, error } = await db()
-        .from("medicos")
-        .select("id, nombre, especialidad, activo, tipo, medico_areas(area_id)")
-        .order("nombre");
-      if (error) return err(error.message, 500);
-      return json(data);
+      if (metodo === "GET") {
+        const { data, error } = await db()
+          .from("medicos")
+          .select("id, nombre, especialidad, activo, tipo, medico_areas(area_id)")
+          .order("nombre");
+        if (error) return err(error.message, 500);
+        return json(data);
+      }
+      if (!puede(u, "config")) return err("Sin permiso", 403);
+      if (metodo === "POST") {
+        const { nombre, especialidad, tipo, areas } = body;
+        if (!nombre?.trim()) return err("Falta el nombre del médico");
+        const { data, error } = await db().from("medicos").insert({
+          nombre: nombre.trim(),
+          especialidad: especialidad?.trim() || null,
+          tipo: tipo === "enfermera" ? "enfermera" : "medico",
+        }).select("id").single();
+        if (error) return err(error.message, 500);
+        const areaIds = (Array.isArray(areas) ? areas : []).map(Number).filter(Boolean);
+        for (const areaId of areaIds) {
+          const { error: eA } = await db().from("medico_areas").insert({ medico_id: data.id, area_id: areaId });
+          if (eA && eA.code !== "23505") console.error("medico_areas:", eA.message);
+        }
+        void auditar(u, "config.medico.crear", { tipo: "medico", id: String(data.id), label: nombre.trim() },
+          { nombre: nombre.trim(), especialidad: especialidad ?? null, tipo: tipo ?? "medico", areas: areaIds });
+        return json({ ok: true, id: data.id });
+      }
+      if (metodo === "PATCH" && r1) {
+        const cambios: Record<string, unknown> = {};
+        for (const k of ["nombre", "especialidad", "tipo", "activo"]) if (k in body) cambios[k] = body[k];
+        if (Object.keys(cambios).length) {
+          const { error } = await db().from("medicos").update(cambios).eq("id", Number(r1));
+          if (error) return err(error.message, 500);
+        }
+        // Sincronizar áreas del médico (si vienen en el body)
+        if (Array.isArray(body.areas)) {
+          const deseadas = body.areas.map(Number).filter(Boolean);
+          const { data: actuales } = await db().from("medico_areas").select("area_id").eq("medico_id", Number(r1));
+          const tiene = (actuales ?? []).map((a: any) => a.area_id);
+          for (const a of deseadas.filter((x: number) => !tiene.includes(x))) {
+            const { error: eA } = await db().from("medico_areas").insert({ medico_id: Number(r1), area_id: a });
+            if (eA && eA.code !== "23505") return err(eA.message, 500);
+          }
+          for (const a of tiene.filter((x: number) => !deseadas.includes(x))) {
+            const { error: eD } = await db().from("medico_areas").delete().eq("medico_id", Number(r1)).eq("area_id", a);
+            if (eD) {
+              if (eD.code === "23503")
+                return err("No se puede quitar esa área: el médico tiene pacientes asignados o historia clínica en ella. Desactiva antes esas asignaciones.");
+              return err(eD.message, 500);
+            }
+          }
+          cambios.areas = deseadas;
+        }
+        void auditar(u, "config.medico.editar", { tipo: "medico", id: r1 }, { cambios });
+        return json({ ok: true });
+      }
+      return err("Método no soportado", 405);
     }
 
     case "agenda": {
@@ -669,7 +726,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     // ---------- Buscador CIE-10 ----------
     case "cie10": {
       const ambito = await ambitoClinico(u);
-      if (!ambito) return err("Sin acceso a datos clínicos", 403);
+      if (!ambito) return errAmbito(u);
       const busca = q.get("q")?.trim();
       if (!busca || busca.length < 2) return json([]);
       // Por código exacto/prefijo o por texto en la descripción
@@ -700,7 +757,8 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         // Mis pacientes (rol médico): pacientes con asignación activa a este médico
         if (q.get("mias") === "1") {
           const ambito = await ambitoClinico(u);
-          if (!ambito || ambito.total) return err("Solo para el rol médico", 400);
+          if (!ambito) return errAmbito(u);
+          if (ambito.total) return err("Solo para el rol médico", 400);
           const { data, error } = await db()
             .from("paciente_medico_area")
             .select("paciente_id, area_id, areas(nombre), pacientes(id, nombre, apellidos, telefono, activo)")
@@ -753,7 +811,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     // ---------- Historia clínica del paciente ----------
     case "historia": {
       const ambito = await ambitoClinico(u);
-      if (!ambito) return err("Sin acceso a datos clínicos", 403);
+      if (!ambito) return errAmbito(u);
       const pacienteId = Number(q.get("paciente_id"));
       if (!pacienteId) return err("Falta paciente_id");
       if (!(await puedeVerPaciente(ambito, pacienteId))) return err("Este paciente no está asignado a ti", 403);
@@ -812,7 +870,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     // ---------- Consultas clínicas ----------
     case "consultas": {
       const ambito = await ambitoClinico(u);
-      if (!ambito) return err("Sin acceso a datos clínicos", 403);
+      if (!ambito) return errAmbito(u);
 
       // Versiones anteriores de una consulta (histórico inmutable)
       if (metodo === "GET" && r1 && r2 === "versiones") {
@@ -983,7 +1041,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         return json(data);
       }
       const ambito = await ambitoClinico(u);
-      if (!ambito) return err("Sin acceso a datos clínicos", 403);
+      if (!ambito) return errAmbito(u);
       if (metodo === "POST") {
         const { paciente_id, alergia_id, estado, notas } = body;
         if (!paciente_id || !alergia_id) return err("Faltan paciente o alergia");

@@ -17,6 +17,7 @@ export default function Config({ sub, setSub, rol }: { sub: string; setSub: (s: 
         <button className={sub === "horarios" ? "on" : ""} onClick={() => setSub("horarios")}>Horarios</button>
         <button className={sub === "bloqueos" ? "on" : ""} onClick={() => setSub("bloqueos")}>Vacaciones y bloqueos</button>
         <button className={sub === "areas" ? "on" : ""} onClick={() => setSub("areas")}>Áreas</button>
+        <button className={sub === "medicos" ? "on" : ""} onClick={() => setSub("medicos")}>Médicos</button>
         {puedeUsuarios && <button className={sub === "usuarios" ? "on" : ""} onClick={() => setSub("usuarios")}>Usuarios y permisos</button>}
         <button className={sub === "derechos" ? "on" : ""} onClick={() => setSub("derechos")}>Derechos RGPD</button>
         <button className={sub === "docs-rgpd" ? "on" : ""} onClick={() => setSub("docs-rgpd")}>Documentos RGPD</button>
@@ -27,6 +28,7 @@ export default function Config({ sub, setSub, rol }: { sub: string; setSub: (s: 
       {sub === "horarios" && <Horarios />}
       {sub === "bloqueos" && <Bloqueos />}
       {sub === "areas" && <Areas />}
+      {sub === "medicos" && <Medicos />}
       {sub === "usuarios" && puedeUsuarios && <Usuarios rolActual={rol} />}
       {sub === "derechos" && <Derechos />}
       {sub === "docs-rgpd" && <DocumentosRgpd />}
@@ -74,6 +76,101 @@ function Areas() {
   );
 }
 
+/* Fichas de médicos y enfermería: la agenda, sus áreas, y a lo que se vincula el usuario del panel */
+function Medicos() {
+  const [lista, setLista] = useState<any[]>([]);
+  const [areas, setAreas] = useState<any[]>([]);
+  const [nuevo, setNuevo] = useState<any | null>(null);
+  const cargar = () => api<any[]>("medicos").then(setLista).catch((e) => alert(e.message));
+  useEffect(() => { cargar(); api<any[]>("areas").then((a) => setAreas(a.filter((x: any) => x.activo))).catch(() => {}); }, []);
+
+  async function actualizar(id: number, campos: any) {
+    try { await api(`medicos/${id}`, { method: "PATCH", body: campos }); cargar(); }
+    catch (e: any) { alert(e.message); cargar(); }
+  }
+
+  return (
+    <>
+      <p className="nota">
+        La ficha de un médico es su columna de agenda: aquí se crea, se le asignan sus áreas y luego se le da horario (Horarios) y usuario del panel (Usuarios y permisos → vincular). Desactivar en vez de borrar: se conservan sus citas e historia.
+      </p>
+      <div className="fila">
+        <button className="btn oro" onClick={() => setNuevo({ nombre: "", especialidad: "", tipo: "medico", areas: [] })}>+ Crear médico</button>
+      </div>
+      <table className="t">
+        <thead><tr><th>Nombre</th><th>Especialidad</th><th>Tipo</th><th>Áreas</th><th>Activo</th></tr></thead>
+        <tbody>
+          {lista.map((m) => {
+            const suyas = (m.medico_areas ?? []).map((x: any) => x.area_id);
+            return (
+              <tr key={m.id} style={{ opacity: m.activo ? 1 : 0.5 }}>
+                <td style={{ width: 220 }}>
+                  <input defaultValue={m.nombre} onBlur={(e) => { if (e.target.value.trim() && e.target.value !== m.nombre) actualizar(m.id, { nombre: e.target.value.trim() }); }} />
+                </td>
+                <td style={{ width: 200 }}>
+                  <input defaultValue={m.especialidad ?? ""} onBlur={(e) => actualizar(m.id, { especialidad: e.target.value || null })} />
+                </td>
+                <td style={{ width: 130 }}>
+                  <select defaultValue={m.tipo ?? "medico"} onChange={(e) => actualizar(m.id, { tipo: e.target.value })}>
+                    <option value="medico">medico</option>
+                    <option value="enfermera">enfermería</option>
+                  </select>
+                </td>
+                <td>
+                  {areas.map((a) => (
+                    <label key={a.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 12, fontSize: 12.5 }}>
+                      <input type="checkbox" style={{ width: "auto" }} checked={suyas.includes(a.id)}
+                        onChange={(e) => actualizar(m.id, { areas: e.target.checked ? [...suyas, a.id] : suyas.filter((x: number) => x !== a.id) })} />
+                      {a.nombre}
+                    </label>
+                  ))}
+                </td>
+                <td><input type="checkbox" defaultChecked={m.activo} onChange={(e) => actualizar(m.id, { activo: e.target.checked })} /></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {nuevo && (
+        <div className="modal-bg" onClick={() => setNuevo(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Nueva ficha de médico</h3>
+            <div className="campo"><label>Nombre (como se verá en agenda y bot)</label>
+              <input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Dr./Dra. Nombre Apellido" /></div>
+            <div className="campo"><label>Especialidad (opcional)</label>
+              <input value={nuevo.especialidad} onChange={(e) => setNuevo({ ...nuevo, especialidad: e.target.value })} /></div>
+            <div className="campo"><label>Tipo</label>
+              <select value={nuevo.tipo} onChange={(e) => setNuevo({ ...nuevo, tipo: e.target.value })}>
+                <option value="medico">Médico</option>
+                <option value="enfermera">Enfermería</option>
+              </select>
+            </div>
+            <div className="campo"><label>Áreas en las que trabaja</label>
+              <div>
+                {areas.map((a) => (
+                  <label key={a.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 12, fontSize: 13 }}>
+                    <input type="checkbox" style={{ width: "auto" }} checked={nuevo.areas.includes(a.id)}
+                      onChange={(e) => setNuevo({ ...nuevo, areas: e.target.checked ? [...nuevo.areas, a.id] : nuevo.areas.filter((x: number) => x !== a.id) })} />
+                    {a.nombre}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="fila" style={{ justifyContent: "flex-end" }}>
+              <button className="btn suave" onClick={() => setNuevo(null)}>Cerrar</button>
+              <button className="btn oro" onClick={async () => {
+                if (!nuevo.nombre.trim()) { alert("Falta el nombre"); return; }
+                try { await api("medicos", { method: "POST", body: nuevo }); setNuevo(null); cargar(); }
+                catch (e: any) { alert(e.message); }
+              }}>Crear ficha</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function Usuarios({ rolActual }: { rolActual: string }) {
   const [lista, setLista] = useState<any[]>([]);
   const [medicos, setMedicos] = useState<any[]>([]);
@@ -84,7 +181,7 @@ function Usuarios({ rolActual }: { rolActual: string }) {
 
   return (
     <>
-      <p className="nota">Los usuarios se dan de alta al momento: pueden entrar con su email y contraseña nada más crearlos. Roles: admin (técnico) · direccion (todo) · recepcion (gestión) · enfermera (agenda completa) · medico (solo su agenda, requiere vincular su columna).</p>
+      <p className="nota">Los usuarios se dan de alta al momento: pueden entrar con su email y contraseña nada más crearlos. Roles: admin (técnico) · direccion (todo) · recepcion (gestión) · enfermera (agenda completa) · medico (solo su agenda, requiere vincular su columna). Si un médico nuevo no aparece en "Vinculado a", crea antes su ficha en <b>Configuración → Médicos</b>: sin vincular no verá agenda ni pacientes.</p>
       <div className="fila">
         <button className="btn oro" onClick={() => setNuevo({ email: "", password: "", nombre: "", rol: "recepcion", medico_id: null })}>+ Crear usuario</button>
       </div>
