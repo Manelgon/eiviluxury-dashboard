@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, setToken, getToken } from "@/components/api";
+import Inicio from "@/components/Inicio";
 import Agenda from "@/components/Agenda";
 import Clientes from "@/components/Clientes";
 import Config from "@/components/Config";
@@ -11,7 +12,7 @@ type Me = { nombre: string | null; rol: string };
 export default function Page() {
   const [me, setMe] = useState<Me | null>(null);
   const [cargando, setCargando] = useState(true);
-  const [tab, setTab] = useState("agenda");
+  const [tab, setTab] = useState("inicio");
 
   useEffect(() => {
     if (!getToken()) { setCargando(false); return; }
@@ -22,11 +23,13 @@ export default function Page() {
   if (!me) return <Login onOk={(m) => setMe(m)} />;
 
   const esMedico = me.rol === "medico";
+  if (esMedico && tab === "inicio") setTab("agenda");
   return (
     <>
       <div className="topbar">
         <div className="marca">EIVI<b>LUXURY</b> · Panel</div>
         <div className="tabs">
+          {!esMedico && <button className={tab === "inicio" ? "on" : ""} onClick={() => setTab("inicio")}>Inicio</button>}
           <button className={tab === "agenda" ? "on" : ""} onClick={() => setTab("agenda")}>Agenda</button>
           {!esMedico && <button className={tab === "clientes" ? "on" : ""} onClick={() => setTab("clientes")}>Clientes</button>}
           {!esMedico && <button className={tab === "config" ? "on" : ""} onClick={() => setTab("config")}>Configuración</button>}
@@ -36,6 +39,7 @@ export default function Page() {
         <button className="salir" onClick={() => { setToken(null); setMe(null); }}>Salir</button>
       </div>
       <div className="main">
+        {tab === "inicio" && !esMedico && <Inicio />}
         {tab === "agenda" && <Agenda />}
         {tab === "clientes" && <Clientes />}
         {tab === "config" && <Config />}

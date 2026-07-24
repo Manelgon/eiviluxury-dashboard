@@ -15,7 +15,7 @@ create table if not exists eivi.usuarios_panel (
   user_id    uuid primary key,
   email      text not null unique,
   nombre     text,
-  rol        text not null check (rol in ('direccion','recepcion','medico')),
+  rol        text not null check (rol in ('admin','direccion','recepcion','medico')),
   medico_id  bigint references eivi.medicos(id),
   activo     boolean not null default true,
   created_at timestamptz not null default now()

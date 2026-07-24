@@ -88,6 +88,23 @@ table.t tr:last-child td{border-bottom:none}
 .barra-lbl{font-size:10.5px;color:var(--muted)}
 .tip{position:absolute;background:var(--tinta);color:#fff;font-size:12px;padding:6px 10px;border-radius:8px;pointer-events:none;white-space:nowrap;transform:translate(-50%,-110%);z-index:10}
 
+/* Inicio: widgets */
+.inicio-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.widget{background:#fff;border:1px solid var(--linea);border-radius:14px;overflow:hidden}
+.widget.editando{cursor:grab;outline:2px dashed var(--oro-claro);outline-offset:2px}
+.widget.arrastrando{opacity:.4}
+.widget-cab{display:flex;justify-content:space-between;align-items:center;background:#fdfbf7;border-bottom:1px solid var(--linea);padding:10px 14px;font-size:12.5px;letter-spacing:1px;text-transform:uppercase;color:var(--gris)}
+.widget-x{background:none;border:none;color:var(--rojo);font-size:14px}
+.widget-cuerpo{padding:14px}
+.mini-kpis{display:flex;gap:18px;justify-content:space-around;text-align:center}
+.mini-kpis b{display:block;font-size:26px}
+.mini-kpis span{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.linea-cita{display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px dashed var(--linea);font-size:13.5px}
+.linea-cita:last-child{border-bottom:none}
+.linea-cita b{min-width:48px}
+.linea-cita span{flex:1}
+.linea-cita em{font-style:normal;color:var(--muted);font-size:12px}
+
 .subtabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .subtabs button{background:#efe9de;border:none;border-radius:999px;padding:7px 16px;font-size:13px;color:var(--gris)}
 .subtabs button.on{background:var(--tinta);color:#fff}

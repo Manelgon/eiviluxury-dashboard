@@ -4,7 +4,7 @@ export interface UsuarioPanel {
   user_id: string;
   email: string;
   nombre: string | null;
-  rol: "direccion" | "recepcion" | "medico";
+  rol: "admin" | "direccion" | "recepcion" | "medico";
   medico_id: number | null;
 }
 
@@ -28,7 +28,7 @@ export async function usuarioDesdeRequest(req: Request): Promise<UsuarioPanel | 
 }
 
 export function puede(u: UsuarioPanel, accion: "gestion" | "config" | "metricas"): boolean {
-  if (u.rol === "direccion") return true;
+  if (u.rol === "admin" || u.rol === "direccion") return true;
   if (u.rol === "recepcion") return accion === "gestion" || accion === "config" || accion === "metricas";
   // medico: solo lectura de su agenda (se filtra en la ruta)
   return false;
