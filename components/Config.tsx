@@ -4,14 +4,25 @@ import { api } from "./api";
 import Logs from "./Logs";
 import Derechos from "./Derechos";
 import DocumentosRgpd from "./DocumentosRgpd";
+import MiPerfil from "./MiPerfil";
 
 const DIAS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
-export default function Config({ sub, setSub, rol }: { sub: string; setSub: (s: string) => void; rol: string }) {
+export default function Config({ sub, setSub, rol, tieneFicha = false }: { sub: string; setSub: (s: string) => void; rol: string; tieneFicha?: boolean }) {
   const puedeUsuarios = rol === "admin" || rol === "direccion";
+  // Médico/enfermería: su configuración es SOLO su perfil (ficha + agenda)
+  if (["medico", "enfermera"].includes(rol)) {
+    return (
+      <>
+        <div className="subtabs"><button className="on">Mi perfil</button></div>
+        <MiPerfil />
+      </>
+    );
+  }
   return (
     <>
       <div className="subtabs">
+        {tieneFicha && <button className={sub === "mi-perfil" ? "on" : ""} onClick={() => setSub("mi-perfil")}>Mi perfil</button>}
         <button className={sub === "tratamientos" ? "on" : ""} onClick={() => setSub("tratamientos")}>Tratamientos y precios</button>
         <button className={sub === "faq" ? "on" : ""} onClick={() => setSub("faq")}>FAQ del bot</button>
         <button className={sub === "horarios" ? "on" : ""} onClick={() => setSub("horarios")}>Horarios</button>
@@ -23,6 +34,7 @@ export default function Config({ sub, setSub, rol }: { sub: string; setSub: (s: 
         <button className={sub === "docs-rgpd" ? "on" : ""} onClick={() => setSub("docs-rgpd")}>Documentos RGPD</button>
         {puedeUsuarios && <button className={sub === "logs" ? "on" : ""} onClick={() => setSub("logs")}>Logs</button>}
       </div>
+      {sub === "mi-perfil" && tieneFicha && <MiPerfil />}
       {sub === "tratamientos" && <Tratamientos />}
       {sub === "faq" && <Faq />}
       {sub === "horarios" && <Horarios />}

@@ -926,7 +926,9 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         return err("Tu usuario no está vinculado a ninguna ficha de médico (Configuración → Usuarios y permisos)", 403);
       if (metodo === "GET") {
         const [{ data: ficha }, { data: horarios }, { data: bloqueos }, { data: citasProx }] = await Promise.all([
-          db().from("medicos").select("id, nombre, antelacion_horas").eq("id", u.medico_id).maybeSingle(),
+          db().from("medicos")
+            .select("id, nombre, tipo, antelacion_horas, num_colegiado, dni, telefono, email, fecha_nacimiento, direccion, bio, medico_areas(areas(nombre))")
+            .eq("id", u.medico_id).maybeSingle(),
           db().from("horarios").select("id, dia_semana, hora_inicio, hora_fin").eq("medico_id", u.medico_id).order("dia_semana").order("hora_inicio"),
           db().from("bloqueos").select("id, inicio, fin, motivo").eq("medico_id", u.medico_id).gte("fin", new Date().toISOString()).order("inicio"),
           db().from("citas").select("id", { count: "exact", head: false }).eq("medico_id", u.medico_id)
@@ -935,11 +937,19 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         return json({ ficha, horarios: horarios ?? [], bloqueos: bloqueos ?? [], tiene_citas_futuras: (citasProx?.length ?? 0) > 0 });
       }
       if (metodo === "PATCH") {
-        const horas = Number(body.antelacion_horas);
-        if (!Number.isFinite(horas) || horas < 0 || horas > 336) return err("Antelación no válida (0 a 336 horas)");
-        const { error } = await db().from("medicos").update({ antelacion_horas: horas }).eq("id", u.medico_id);
+        const cambios: Record<string, unknown> = {};
+        if ("antelacion_horas" in body) {
+          const horas = Number(body.antelacion_horas);
+          if (!Number.isFinite(horas) || horas < 0 || horas > 336) return err("Antelación no válida (0 a 336 horas)");
+          cambios.antelacion_horas = horas;
+        }
+        // El médico solo edita sus datos de CONTACTO. Lo identificativo (nombre,
+        // nº colegiado, DNI, nacimiento, áreas, tipo) lo cambia solo dirección.
+        for (const k of ["telefono", "email", "direccion", "bio"]) if (k in body) cambios[k] = body[k] || null;
+        if (!Object.keys(cambios).length) return err("Nada que actualizar");
+        const { error } = await db().from("medicos").update(cambios).eq("id", u.medico_id);
         if (error) return err(error.message, 500);
-        void auditar(u, "mi_agenda.antelacion", { tipo: "medico", id: String(u.medico_id) }, { antelacion_horas: horas });
+        void auditar(u, "mi_agenda.perfil.editar", { tipo: "medico", id: String(u.medico_id) }, { cambios });
         return json({ ok: true });
       }
       return err("Método no soportado", 405);
