@@ -10,6 +10,11 @@ export const dynamic = "force-dynamic";
  *  - RETENCION_CHAT_MESES     (def. 24): conversaciones de WhatsApp
  *  - RETENCION_LOGS_MESES     (def. 24): logs de auditoría
  *  - RETENCION_PAPELERA_DIAS  (def. 30): clientes en papelera → anonimización
+ *  - RETENCION_ASISTENCIA_ANIOS (def. 5): SALVAGUARDA SANITARIA — un cliente
+ *    con asistencia (cita completada) dentro de este plazo NO se anonimiza
+ *    (Ley 41/2002 art. 17: conservación mínima de la documentación clínica;
+ *    RGPD art. 17.3: la supresión cede ante la obligación legal). Queda en
+ *    papelera = bloqueado (fuera de listados y del bot) hasta vencer el plazo.
  * NOTA: las citas y consentimientos NO se purgan (obligaciones sanitarias/fiscales).
  */
 export async function GET(req: NextRequest) {
@@ -49,6 +54,8 @@ export async function GET(req: NextRequest) {
   } catch (e: any) { resultado.errores.push(`logs: ${e.message}`); }
 
   // 3. Clientes en papelera hace más de N días → anonimizar (irreversible)
+  //    SALVO que tengan asistencia dentro del plazo legal de conservación.
+  const asistenciaAnios = parseInt(process.env.RETENCION_ASISTENCIA_ANIOS ?? "5", 10);
   try {
     const { data: aAnonimizar, error: e1 } = await db()
       .from("clientes")
@@ -58,6 +65,20 @@ export async function GET(req: NextRequest) {
       .not("telefono", "like", "anon-%");
     if (e1) throw e1;
     for (const c of aAnonimizar ?? []) {
+      // Salvaguarda sanitaria: ¿tuvo asistencia dentro del plazo?
+      const { data: ultima } = await db()
+        .from("citas")
+        .select("inicio")
+        .eq("cliente_id", c.id)
+        .eq("estado", "completada")
+        .order("inicio", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (ultima && new Date(ultima.inicio).getTime() > Date.now() - asistenciaAnios * 365.25 * 86400_000) {
+        void auditar(null, "rgpd.anonimizacion_pospuesta", { tipo: "cliente", id: c.id },
+          { motivo: `asistencia dentro del plazo de conservación (${asistenciaAnios} años) — cliente bloqueado en papelera` });
+        continue;
+      }
       const { error: e2 } = await db().from("clientes").update({
         nombre: "[anonimizado]", apellidos: null, email: null,
         telefono_contacto: null, telefono: `anon-${c.id}`, activo: false,

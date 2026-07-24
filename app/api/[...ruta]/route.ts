@@ -188,29 +188,47 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       }
       if (metodo === "PATCH" && r1) {
         if (!puede(u, "gestion")) return err("Sin permiso", 403);
+        // Estado actual del cliente (para la escalera desactivar → eliminar → anonimizar)
+        const { data: actual } = await db()
+          .from("clientes").select("activo, deleted_at").eq("id", Number(r1)).maybeSingle();
+        if (!actual) return err("Cliente no encontrado", 404);
         // Borrado suave y restauración
         if (body.eliminar === true) {
+          if (actual.activo) return err("Escalera de baja: primero hay que DESACTIVAR al cliente; solo entonces se puede enviar a la papelera.");
           const { error } = await db().from("clientes").update({ deleted_at: new Date().toISOString() }).eq("id", Number(r1));
           if (error) return err(error.message, 500);
-          void auditar(u, "cliente.eliminar", { tipo: "cliente", id: r1 });
+          void auditar(u, "cliente.eliminar", { tipo: "cliente", id: r1 }, { papelera_desde: new Date().toISOString() });
           return json({ ok: true });
         }
         // Anonimización irreversible (derecho de supresión con obligación de conservar lo operativo)
         if (body.anonimizar === true) {
           if (!puede(u, "usuarios")) return err("Solo admin o dirección pueden anonimizar", 403);
+          if (!actual.deleted_at) return err("Escalera de baja: solo se puede anonimizar a un cliente que esté en la papelera.");
+          // Salvaguarda sanitaria (Ley 41/2002 art. 17): con asistencia reciente, no anonimizar
+          const anios = parseInt(process.env.RETENCION_ASISTENCIA_ANIOS ?? "5", 10);
+          const { data: ultima } = await db()
+            .from("citas").select("inicio").eq("cliente_id", Number(r1)).eq("estado", "completada")
+            .order("inicio", { ascending: false }).limit(1).maybeSingle();
+          if (ultima && new Date(ultima.inicio).getTime() > Date.now() - anios * 365.25 * 86400_000 && body.forzar !== true) {
+            return err(
+              `Este cliente tiene asistencia dentro del plazo legal de conservación (${anios} años, Ley 41/2002). Debe permanecer bloqueado en la papelera hasta que venza. Solo fuérzalo con el aval de vuestro asesor de protección de datos.`,
+              409
+            );
+          }
           const { error } = await db().from("clientes").update({
             nombre: "[anonimizado]", apellidos: null, email: null,
             telefono_contacto: null, telefono: `anon-${r1}`,
             activo: false, deleted_at: new Date().toISOString(),
           }).eq("id", Number(r1));
           if (error) return err(error.message, 500);
-          void auditar(u, "cliente.anonimizar", { tipo: "cliente", id: r1 });
+          void auditar(u, "cliente.anonimizar", { tipo: "cliente", id: r1 },
+            { forzado: body.forzar === true, en_papelera_desde: actual.deleted_at });
           return json({ ok: true });
         }
         if (body.restaurar === true) {
           const { error } = await db().from("clientes").update({ deleted_at: null }).eq("id", Number(r1));
           if (error) return err(error.message, 500);
-          void auditar(u, "cliente.restaurar", { tipo: "cliente", id: r1 });
+          void auditar(u, "cliente.restaurar", { tipo: "cliente", id: r1 }, { estaba_en_papelera_desde: actual.deleted_at });
           return json({ ok: true });
         }
         const permitidos = ["nombre", "apellidos", "email", "telefono_contacto", "idioma", "activo"];
@@ -218,7 +236,13 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         for (const k of permitidos) if (k in body) cambios[k] = body[k];
         const { error } = await db().from("clientes").update(cambios).eq("id", Number(r1));
         if (error) return err(error.message, 500);
-        void auditar(u, "cliente.editar", { tipo: "cliente", id: r1 }, { campos: Object.keys(cambios) });
+        // Log con VALORES (no solo nombres de campo). Activo tiene acción propia.
+        if ("activo" in cambios && Object.keys(cambios).length === 1) {
+          void auditar(u, cambios.activo ? "cliente.reactivar" : "cliente.desactivar",
+            { tipo: "cliente", id: r1 }, { activo: cambios.activo });
+        } else {
+          void auditar(u, "cliente.editar", { tipo: "cliente", id: r1 }, { cambios });
+        }
         return json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -250,7 +274,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (metodo === "PATCH" && r1) {
         const { error } = await db().from("consentimientos").update({ revocado_at: new Date().toISOString() }).eq("id", Number(r1));
         if (error) return err(error.message, 500);
-        void auditar(u, "consentimiento.revocar", { tipo: "consentimiento", id: r1 });
+        void auditar(u, "consentimiento.revocar", { tipo: "consentimiento", id: r1 }, { revocado_at: new Date().toISOString() });
         return json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -317,7 +341,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (!puede(u, "gestion")) return err("Sin permiso", 403);
         const { error } = await db().from("escalados").update({ resuelto: body.resuelto === true }).eq("id", Number(r1));
         if (error) return err(error.message, 500);
-        void auditar(u, "escalado.resolver", { tipo: "escalado", id: r1 });
+        void auditar(u, "escalado.resolver", { tipo: "escalado", id: r1 }, { resuelto: body.resuelto === true });
         return json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -335,7 +359,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (!puede(u, "config")) return err("Sin permiso", 403);
       if (metodo === "POST") {
         const { error } = await db().from("tratamientos").insert(body);
-        if (!error) void auditar(u, "config.tratamiento.crear", { tipo: "tratamiento", label: body.nombre });
+        if (!error) void auditar(u, "config.tratamiento.crear", { tipo: "tratamiento", label: body.nombre }, body);
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "PATCH" && r1) {
@@ -355,7 +379,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (metodo === "POST") {
         if (!body.nombre) return err("Falta el nombre del área");
         const { error } = await db().from("areas").insert({ nombre: body.nombre, descripcion: body.descripcion ?? null });
-        if (!error) void auditar(u, "config.area.crear", { tipo: "area", label: body.nombre });
+        if (!error) void auditar(u, "config.area.crear", { tipo: "area", label: body.nombre }, body);
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "PATCH" && r1) {
@@ -393,7 +417,8 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           user_id: nuevo.user.id, email, nombre: nombre ?? null, rol, medico_id: medico_id ?? null,
         });
         if (eI) return err(eI.message, 500);
-        void auditar(u, "usuario.crear", { tipo: "usuario", id: nuevo.user.id, label: email }, { rol });
+        void auditar(u, "usuario.crear", { tipo: "usuario", id: nuevo.user.id, label: email },
+          { rol, nombre: nombre ?? null, medico_id: medico_id ?? null }); // la contraseña NUNCA se registra
         return json({ ok: true });
       }
       if (metodo === "PATCH" && r1) {
@@ -425,12 +450,12 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (!puede(u, "config")) return err("Sin permiso", 403);
       if (metodo === "POST") {
         const { error } = await db().from("faq").insert(body);
-        if (!error) void auditar(u, "config.faq.crear", { tipo: "faq", label: body.pregunta });
+        if (!error) void auditar(u, "config.faq.crear", { tipo: "faq", label: body.pregunta }, body);
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "PATCH" && r1) {
         const { error } = await db().from("faq").update(body).eq("id", Number(r1));
-        if (!error) void auditar(u, "config.faq.editar", { tipo: "faq", id: r1 });
+        if (!error) void auditar(u, "config.faq.editar", { tipo: "faq", id: r1 }, body);
         return error ? err(error.message, 500) : json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -452,8 +477,9 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "DELETE" && r1) {
+        const { data: fila } = await db().from("horarios").select("*").eq("id", Number(r1)).maybeSingle();
         const { error } = await db().from("horarios").delete().eq("id", Number(r1));
-        if (!error) void auditar(u, "config.horario.eliminar", { tipo: "horario", id: r1 });
+        if (!error) void auditar(u, "config.horario.eliminar", { tipo: "horario", id: r1 }, { eliminado: fila });
         return error ? err(error.message, 500) : json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -482,8 +508,9 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "DELETE" && r1) {
+        const { data: fila } = await db().from("bloqueos").select("*").eq("id", Number(r1)).maybeSingle();
         const { error } = await db().from("bloqueos").delete().eq("id", Number(r1));
-        if (!error) void auditar(u, "config.bloqueo.eliminar", { tipo: "bloqueo", id: r1 });
+        if (!error) void auditar(u, "config.bloqueo.eliminar", { tipo: "bloqueo", id: r1 }, { eliminado: fila });
         return error ? err(error.message, 500) : json({ ok: true });
       }
       return err("Método no soportado", 405);

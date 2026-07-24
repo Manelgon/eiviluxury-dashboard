@@ -8,7 +8,10 @@ import type { UsuarioPanel } from "./auth";
  * ⚠️ REGLA DEL PROYECTO (no negociable): TODA acción nueva que se añada
  * al panel o a la API (crear/editar/eliminar/cambiar estado de cualquier
  * cosa, logins, exports, envíos...) DEBE llamar a auditar() con una
- * acción con nombre en formato "recurso.verbo" (ej: "cita.crear").
+ * acción con nombre en formato "recurso.verbo" (ej: "cita.crear"),
+ * incluyendo en metadata los VALORES del cambio (qué se puso, no solo qué
+ * campo se tocó; en borrados, la fila eliminada). Única excepción: las
+ * contraseñas no se registran jamás.
  * El proyecto no está finalizado: si añades una acción sin log, la
  * auditoría RGPD queda incompleta.
  */

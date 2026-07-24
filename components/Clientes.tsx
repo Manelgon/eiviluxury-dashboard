@@ -58,6 +58,7 @@ function ListaClientes() {
                     <div className="acciones-cliente">
                       {papelera ? (
                         <>
+                          <PapeleraInfo deletedAt={c.deleted_at} />
                           <button className="btn mini oro" onClick={async () => {
                             await api(`clientes/${c.id}`, { method: "PATCH", body: { restaurar: true } });
                             cargar();
@@ -65,7 +66,13 @@ function ListaClientes() {
                           <button className="btn mini suave" style={{ color: "var(--rojo)" }} onClick={async () => {
                             if (!confirm("⚠️ ANONIMIZAR es IRREVERSIBLE: se borran nombre, email y teléfonos para siempre (se conservan citas y consentimientos como registro). ¿Continuar?")) return;
                             try { await api(`clientes/${c.id}`, { method: "PATCH", body: { anonimizar: true } }); cargar(); }
-                            catch (e: any) { alert(e.message); }
+                            catch (e: any) {
+                              if (String(e.message).includes("plazo legal") &&
+                                confirm(`${e.message}\n\n¿FORZAR la anonimización igualmente? (quedará auditado)`)) {
+                                try { await api(`clientes/${c.id}`, { method: "PATCH", body: { anonimizar: true, forzar: true } }); cargar(); }
+                                catch (e2: any) { alert(e2.message); }
+                              } else if (!String(e.message).includes("plazo legal")) alert(e.message);
+                            }
                           }}>⚠️ Anonimizar (definitivo)</button>
                         </>
                       ) : (
@@ -78,11 +85,14 @@ function ListaClientes() {
                             await api(`clientes/${c.id}`, { method: "PATCH", body: { activo: !c.activo } });
                             cargar();
                           }}>{c.activo ? "🚫 Desactivar" : "✅ Reactivar"}</button>
-                          <button className="btn mini suave" style={{ color: "var(--rojo)" }} onClick={async () => {
-                            if (!confirm("¿Enviar este cliente a la papelera? Es reversible desde 🗑 Papelera.")) return;
-                            await api(`clientes/${c.id}`, { method: "PATCH", body: { eliminar: true } });
-                            cargar();
-                          }}>🗑 Eliminar</button>
+                          {!c.activo && (
+                            <button className="btn mini suave" style={{ color: "var(--rojo)" }} onClick={async () => {
+                              if (!confirm("¿Enviar este cliente a la papelera? Es reversible desde 🗑 Papelera durante 30 días.")) return;
+                              await api(`clientes/${c.id}`, { method: "PATCH", body: { eliminar: true } });
+                              cargar();
+                            }}>🗑 Eliminar (a papelera)</button>
+                          )}
+                          {!c.activo && <span className="chip">desactivado — ya puede eliminarse</span>}
                         </>
                       )}
                     </div>
@@ -202,6 +212,22 @@ function FichaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () => voi
         </div>
       </div>
     </div>
+  );
+}
+
+const DIAS_PAPELERA = 30; // ventana antes de la anonimización automática (RETENCION_PAPELERA_DIAS)
+
+function PapeleraInfo({ deletedAt }: { deletedAt: string | null }) {
+  if (!deletedAt) return null;
+  const dias = Math.floor((Date.now() - new Date(deletedAt).getTime()) / 86400_000);
+  const quedan = DIAS_PAPELERA - dias;
+  return (
+    <span className={`chip ${quedan <= 0 ? "cancelada" : "pendiente"}`}>
+      🗑 en papelera desde {new Date(deletedAt).toLocaleDateString("es-ES")} ({dias} día{dias === 1 ? "" : "s"})
+      {quedan > 0
+        ? ` · anonimización automática en ${quedan} día${quedan === 1 ? "" : "s"}`
+        : " · elegible para anonimización"}
+    </span>
   );
 }
 
