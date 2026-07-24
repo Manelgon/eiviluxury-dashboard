@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, authClient } from "@/lib/db";
 import { usuarioDesdeRequest, puede, UsuarioPanel } from "@/lib/auth";
+import { auditar } from "@/lib/audit";
 import { madridAUtc, sumarMin, diaSemana, hoyMadrid, sumarDias } from "@/lib/tiempo";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,10 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     const { email, password } = body;
     if (!email || !password) return err("Faltan email o contraseña");
     const { data, error } = await authClient().auth.signInWithPassword({ email, password });
-    if (error || !data.session) return err("Credenciales incorrectas", 401);
+    if (error || !data.session) {
+      void auditar(null, "auth.login_fallido", { tipo: "auth", label: email });
+      return err("Credenciales incorrectas", 401);
+    }
     const { data: fila } = await db()
       .from("usuarios_panel")
       .select("nombre, rol")
@@ -27,6 +31,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       .eq("activo", true)
       .maybeSingle();
     if (!fila) return err("Tu usuario no tiene acceso al panel", 403);
+    void auditar({ user_id: data.user.id, email, nombre: fila.nombre, rol: fila.rol, medico_id: null } as UsuarioPanel, "auth.login", { tipo: "auth", label: email });
     return json({ token: data.session.access_token, nombre: fila.nombre, rol: fila.rol });
   }
 
@@ -120,6 +125,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           .select("id")
           .single();
         if (error) return error.code === "23P01" ? err("Ese hueco se solapa con otra cita del médico") : err(error.message, 500);
+        void auditar(u, "cita.crear", { tipo: "cita", id: data.id }, { cliente_id, medico_id, fecha, hora });
         return json({ ok: true, id: data.id });
       }
       if (metodo === "PATCH" && r1) {
@@ -128,6 +134,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (!["pendiente", "confirmada", "cancelada", "completada", "no_show"].includes(estado)) return err("Estado no válido");
         const { error } = await db().from("citas").update({ estado }).eq("id", Number(r1));
         if (error) return err(error.message, 500);
+        void auditar(u, "cita.cambiar_estado", { tipo: "cita", id: r1 }, { estado });
         return json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -137,11 +144,13 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     case "clientes": {
       if (metodo === "GET" && !r1) {
         const busca = q.get("q")?.trim();
+        const papelera = q.get("papelera") === "1";
         let cq = db()
           .from("clientes")
-          .select("id, telefono, telefono_contacto, nombre, apellidos, email, consentimiento_rgpd, activo, created_at")
+          .select("id, telefono, telefono_contacto, nombre, apellidos, email, consentimiento_rgpd, activo, created_at, deleted_at")
           .order("created_at", { ascending: false })
           .limit(100);
+        cq = papelera ? cq.not("deleted_at", "is", null) : cq.is("deleted_at", null);
         if (busca) cq = cq.or(`nombre.ilike.%${busca}%,apellidos.ilike.%${busca}%,telefono.ilike.%${busca}%`);
         const { data, error } = await cq;
         if (error) return err(error.message, 500);
@@ -164,14 +173,79 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       }
       if (metodo === "PATCH" && r1) {
         if (!puede(u, "gestion")) return err("Sin permiso", 403);
+        // Borrado suave y restauración
+        if (body.eliminar === true) {
+          const { error } = await db().from("clientes").update({ deleted_at: new Date().toISOString() }).eq("id", Number(r1));
+          if (error) return err(error.message, 500);
+          void auditar(u, "cliente.eliminar", { tipo: "cliente", id: r1 });
+          return json({ ok: true });
+        }
+        if (body.restaurar === true) {
+          const { error } = await db().from("clientes").update({ deleted_at: null }).eq("id", Number(r1));
+          if (error) return err(error.message, 500);
+          void auditar(u, "cliente.restaurar", { tipo: "cliente", id: r1 });
+          return json({ ok: true });
+        }
         const permitidos = ["nombre", "apellidos", "email", "telefono_contacto", "idioma", "activo"];
         const cambios: Record<string, unknown> = {};
         for (const k of permitidos) if (k in body) cambios[k] = body[k];
         const { error } = await db().from("clientes").update(cambios).eq("id", Number(r1));
         if (error) return err(error.message, 500);
+        void auditar(u, "cliente.editar", { tipo: "cliente", id: r1 }, { campos: Object.keys(cambios) });
         return json({ ok: true });
       }
       return err("Método no soportado", 405);
+    }
+
+    // ---------- Consentimientos (huella RGPD por finalidad) ----------
+    case "consentimientos": {
+      if (metodo === "GET") {
+        const clienteId = q.get("cliente_id");
+        if (!clienteId) return err("Falta cliente_id");
+        const { data, error } = await db()
+          .from("consentimientos")
+          .select("id, tipo, aceptado, texto, canal, created_at, revocado_at")
+          .eq("cliente_id", Number(clienteId))
+          .order("created_at", { ascending: false });
+        return error ? err(error.message, 500) : json(data);
+      }
+      if (!puede(u, "gestion")) return err("Sin permiso", 403);
+      if (metodo === "POST") {
+        const { cliente_id, tipo, aceptado, texto } = body;
+        if (!cliente_id || !tipo || typeof aceptado !== "boolean") return err("Faltan cliente_id, tipo o aceptado");
+        const { error } = await db().from("consentimientos").insert({
+          cliente_id, tipo, aceptado, texto: texto ?? null, canal: "panel",
+        });
+        if (error) return err(error.message, 500);
+        void auditar(u, "consentimiento.registrar", { tipo: "cliente", id: cliente_id }, { tipo_consentimiento: tipo, aceptado });
+        return json({ ok: true });
+      }
+      if (metodo === "PATCH" && r1) {
+        const { error } = await db().from("consentimientos").update({ revocado_at: new Date().toISOString() }).eq("id", Number(r1));
+        if (error) return err(error.message, 500);
+        void auditar(u, "consentimiento.revocar", { tipo: "consentimiento", id: r1 });
+        return json({ ok: true });
+      }
+      return err("Método no soportado", 405);
+    }
+
+    // ---------- Logs de auditoría (admin y dirección) ----------
+    case "logs": {
+      if (!puede(u, "usuarios")) return err("Sin permiso", 403);
+      const page = Math.max(1, Number(q.get("page") ?? 1));
+      const size = 50;
+      let lq = db()
+        .from("audit_logs")
+        .select("id, actor_email, accion, recurso_tipo, recurso_id, recurso_label, metadata, created_at", { count: "exact" })
+        .order("created_at", { ascending: false })
+        .range((page - 1) * size, page * size - 1);
+      const accion = q.get("accion");
+      const busca = q.get("q")?.trim();
+      if (accion) lq = lq.eq("accion", accion);
+      if (busca) lq = lq.or(`actor_email.ilike.%${busca}%,recurso_label.ilike.%${busca}%,accion.ilike.%${busca}%`);
+      const { data, error, count } = await lq;
+      if (error) return err(error.message, 500);
+      return json({ logs: data ?? [], total: count ?? 0, page, size });
     }
 
     // ---------- Escalados ----------
@@ -189,6 +263,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (!puede(u, "gestion")) return err("Sin permiso", 403);
         const { error } = await db().from("escalados").update({ resuelto: body.resuelto === true }).eq("id", Number(r1));
         if (error) return err(error.message, 500);
+        void auditar(u, "escalado.resolver", { tipo: "escalado", id: r1 });
         return json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -206,10 +281,12 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (!puede(u, "config")) return err("Sin permiso", 403);
       if (metodo === "POST") {
         const { error } = await db().from("tratamientos").insert(body);
+        if (!error) void auditar(u, "config.tratamiento.crear", { tipo: "tratamiento", label: body.nombre });
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "PATCH" && r1) {
         const { error } = await db().from("tratamientos").update(body).eq("id", Number(r1));
+        if (!error) void auditar(u, "config.tratamiento.editar", { tipo: "tratamiento", id: r1 }, body);
         return error ? err(error.message, 500) : json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -224,12 +301,14 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (metodo === "POST") {
         if (!body.nombre) return err("Falta el nombre del área");
         const { error } = await db().from("areas").insert({ nombre: body.nombre, descripcion: body.descripcion ?? null });
+        if (!error) void auditar(u, "config.area.crear", { tipo: "area", label: body.nombre });
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "PATCH" && r1) {
         const cambios: Record<string, unknown> = {};
         for (const k of ["nombre", "descripcion", "activo"]) if (k in body) cambios[k] = body[k];
         const { error } = await db().from("areas").update(cambios).eq("id", Number(r1));
+        if (!error) void auditar(u, "config.area.editar", { tipo: "area", id: r1 }, cambios);
         return error ? err(error.message, 500) : json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -260,6 +339,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           user_id: nuevo.user.id, email, nombre: nombre ?? null, rol, medico_id: medico_id ?? null,
         });
         if (eI) return err(eI.message, 500);
+        void auditar(u, "usuario.crear", { tipo: "usuario", id: nuevo.user.id, label: email }, { rol });
         return json({ ok: true });
       }
       if (metodo === "PATCH" && r1) {
@@ -275,7 +355,9 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           if (String(body.password).length < 8) return err("La contraseña debe tener al menos 8 caracteres");
           const { error } = await db().auth.admin.updateUserById(r1, { password: body.password });
           if (error) return err(error.message, 500);
+          void auditar(u, "usuario.password_reset", { tipo: "usuario", id: r1 });
         }
+        if (Object.keys(cambios).length > 0) void auditar(u, "usuario.editar", { tipo: "usuario", id: r1 }, cambios);
         return json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -289,10 +371,12 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (!puede(u, "config")) return err("Sin permiso", 403);
       if (metodo === "POST") {
         const { error } = await db().from("faq").insert(body);
+        if (!error) void auditar(u, "config.faq.crear", { tipo: "faq", label: body.pregunta });
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "PATCH" && r1) {
         const { error } = await db().from("faq").update(body).eq("id", Number(r1));
+        if (!error) void auditar(u, "config.faq.editar", { tipo: "faq", id: r1 });
         return error ? err(error.message, 500) : json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -310,10 +394,12 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (!puede(u, "config")) return err("Sin permiso", 403);
       if (metodo === "POST") {
         const { error } = await db().from("horarios").insert(body);
+        if (!error) void auditar(u, "config.horario.crear", { tipo: "horario" }, body);
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "DELETE" && r1) {
         const { error } = await db().from("horarios").delete().eq("id", Number(r1));
+        if (!error) void auditar(u, "config.horario.eliminar", { tipo: "horario", id: r1 });
         return error ? err(error.message, 500) : json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -338,10 +424,12 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           fin: madridAUtc(fecha_fin, hora_fin ?? "23:59").toISOString(),
           motivo: motivo ?? null,
         });
+        if (!error) void auditar(u, "config.bloqueo.crear", { tipo: "bloqueo" }, { medico_id, fecha_inicio, fecha_fin, motivo });
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "DELETE" && r1) {
         const { error } = await db().from("bloqueos").delete().eq("id", Number(r1));
+        if (!error) void auditar(u, "config.bloqueo.eliminar", { tipo: "bloqueo", id: r1 });
         return error ? err(error.message, 500) : json({ ok: true });
       }
       return err("Método no soportado", 405);

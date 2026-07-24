@@ -6,6 +6,7 @@ import Agenda from "@/components/Agenda";
 import Clientes from "@/components/Clientes";
 import Config from "@/components/Config";
 import Metricas from "@/components/Metricas";
+import IdleTimeout from "@/components/IdleTimeout";
 
 type Me = { nombre: string | null; rol: string };
 
@@ -28,6 +29,7 @@ export default function Page() {
   if (esMedico && tab === "inicio") setTab("agenda");
   return (
     <>
+      <IdleTimeout onLogout={() => setMe(null)} />
       <div className="topbar">
         <div className="marca">EIVI<b>LUXURY</b> · Panel</div>
         <div className="tabs">
@@ -51,7 +53,9 @@ export default function Page() {
                     { id: "horarios", t: "Horarios" },
                     { id: "bloqueos", t: "Vacaciones y bloqueos" },
                     { id: "areas", t: "Áreas de la clínica" },
-                    ...(me.rol === "admin" || me.rol === "direccion" ? [{ id: "usuarios", t: "Usuarios y permisos" }] : []),
+                    ...(me.rol === "admin" || me.rol === "direccion"
+                      ? [{ id: "usuarios", t: "Usuarios y permisos" }, { id: "logs", t: "Logs de actividad" }]
+                      : []),
                   ].map((o) => (
                     <button key={o.id} className={tab === "config" && configSub === o.id ? "on" : ""}
                       onClick={() => { setTab("config"); setConfigSub(o.id); setMenuConf(false); }}>

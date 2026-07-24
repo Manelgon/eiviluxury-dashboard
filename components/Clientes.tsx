@@ -21,17 +21,23 @@ function ListaClientes() {
   const [ficha, setFicha] = useState<any | null>(null);
   const [abierto, setAbierto] = useState<number | null>(null);
   const [citaPara, setCitaPara] = useState<any | null>(null);
+  const [papelera, setPapelera] = useState(false);
 
-  const cargar = () => api<any[]>(`clientes${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setLista).catch(() => {});
+  const cargar = () =>
+    api<any[]>(`clientes?${papelera ? "papelera=1&" : ""}${q ? `q=${encodeURIComponent(q)}` : ""}`).then(setLista).catch(() => {});
   useEffect(() => {
     const t = setTimeout(cargar, 300);
     return () => clearTimeout(t);
-  }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, papelera]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
       <div className="fila">
         <input placeholder="Buscar por nombre, apellidos o teléfono…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 340 }} />
+        <div style={{ flex: 1 }} />
+        <button className={`btn mini ${papelera ? "oro" : "suave"}`} onClick={() => { setPapelera(!papelera); setAbierto(null); }}>
+          🗑 Papelera {papelera ? "(viendo eliminados)" : ""}
+        </button>
       </div>
       <table className="t">
         <thead><tr><th>Nombre</th><th>Teléfono</th><th>Email</th><th>RGPD</th><th>Alta</th></tr></thead>
@@ -50,14 +56,28 @@ function ListaClientes() {
                 <tr className="fila-acciones">
                   <td colSpan={5}>
                     <div className="acciones-cliente">
-                      <button className="btn mini" onClick={() => api(`clientes/${c.id}`).then(setFicha)}>📋 Ver ficha</button>
-                      <button className="btn mini oro" onClick={() => setCitaPara(c)}>📅 Nueva cita</button>
-                      <a className="btn mini suave" href={`https://wa.me/${c.telefono}`} target="_blank" rel="noopener"
-                        onClick={(e) => e.stopPropagation()}>💬 WhatsApp</a>
-                      <button className="btn mini suave" onClick={async () => {
-                        await api(`clientes/${c.id}`, { method: "PATCH", body: { activo: !c.activo } });
-                        cargar();
-                      }}>{c.activo ? "🚫 Desactivar" : "✅ Reactivar"}</button>
+                      {papelera ? (
+                        <button className="btn mini oro" onClick={async () => {
+                          await api(`clientes/${c.id}`, { method: "PATCH", body: { restaurar: true } });
+                          cargar();
+                        }}>♻️ Restaurar cliente</button>
+                      ) : (
+                        <>
+                          <button className="btn mini" onClick={() => api(`clientes/${c.id}`).then(setFicha)}>📋 Ver ficha</button>
+                          <button className="btn mini oro" onClick={() => setCitaPara(c)}>📅 Nueva cita</button>
+                          <a className="btn mini suave" href={`https://wa.me/${c.telefono}`} target="_blank" rel="noopener"
+                            onClick={(e) => e.stopPropagation()}>💬 WhatsApp</a>
+                          <button className="btn mini suave" onClick={async () => {
+                            await api(`clientes/${c.id}`, { method: "PATCH", body: { activo: !c.activo } });
+                            cargar();
+                          }}>{c.activo ? "🚫 Desactivar" : "✅ Reactivar"}</button>
+                          <button className="btn mini suave" style={{ color: "var(--rojo)" }} onClick={async () => {
+                            if (!confirm("¿Enviar este cliente a la papelera? Es reversible desde 🗑 Papelera.")) return;
+                            await api(`clientes/${c.id}`, { method: "PATCH", body: { eliminar: true } });
+                            cargar();
+                          }}>🗑 Eliminar</button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -152,6 +172,7 @@ function FichaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () => voi
         <p className="nota">
           Consentimiento RGPD: {cliente.consentimiento_rgpd ? `aceptado el ${new Date(cliente.consentimiento_fecha).toLocaleString("es-ES")}` : "no aceptado"}
         </p>
+        <Consentimientos clienteId={cliente.id} />
         <h3 style={{ marginTop: 16 }}>Citas</h3>
         <table className="t">
           <thead><tr><th>Cuándo</th><th>Médico</th><th>Tratamiento</th><th>Estado</th></tr></thead>
@@ -173,6 +194,56 @@ function FichaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () => voi
           <button className="btn oro" onClick={guardar}>Guardar cambios</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+const TIPOS_CONSENT: Record<string, string> = {
+  datos_personales: "Datos personales",
+  datos_clinicos: "Datos clínicos (salud)",
+  comunicaciones_recordatorios: "Recordatorios de cita",
+  publicidad: "Publicidad y novedades",
+};
+
+function Consentimientos({ clienteId }: { clienteId: number }) {
+  const [lista, setLista] = useState<any[]>([]);
+  const cargar = () => api<any[]>(`consentimientos?cliente_id=${clienteId}`).then(setLista).catch(() => {});
+  useEffect(() => { cargar(); }, [clienteId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Estado vigente por tipo: el registro más reciente no revocado
+  const vigente = (tipo: string) => lista.find((c) => c.tipo === tipo && !c.revocado_at);
+
+  return (
+    <div className="card" style={{ marginTop: 8 }}>
+      <p className="nota" style={{ marginTop: 0 }}><b>Consentimientos por finalidad</b> (huella RGPD con fecha y canal)</p>
+      {Object.entries(TIPOS_CONSENT).map(([tipo, etiqueta]) => {
+        const v = vigente(tipo);
+        return (
+          <div key={tipo} className="linea-cita">
+            <span style={{ flex: 1 }}>{etiqueta}</span>
+            {v ? (
+              <>
+                <span className={`chip ${v.aceptado ? "confirmada" : "cancelada"}`}>
+                  {v.aceptado ? "aceptado" : "rechazado"} · {new Date(v.created_at).toLocaleDateString("es-ES")} · {v.canal}
+                </span>
+                <button className="btn mini suave" onClick={async () => {
+                  if (!confirm(`¿Revocar el consentimiento de "${etiqueta}"?`)) return;
+                  await api(`consentimientos/${v.id}`, { method: "PATCH", body: { revocar: true } });
+                  cargar();
+                }}>Revocar</button>
+              </>
+            ) : (
+              <>
+                <span className="chip">sin registro</span>
+                <button className="btn mini suave" onClick={async () => {
+                  await api("consentimientos", { method: "POST", body: { cliente_id: clienteId, tipo, aceptado: true, texto: `Consentimiento de ${etiqueta} otorgado verbalmente/en persona y registrado desde el panel` } });
+                  cargar();
+                }}>Registrar ✓</button>
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
