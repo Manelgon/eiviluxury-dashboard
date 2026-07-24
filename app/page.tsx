@@ -7,6 +7,7 @@ import Pacientes from "@/components/Pacientes";
 import Config from "@/components/Config";
 import Metricas from "@/components/Metricas";
 import MisPacientes from "@/components/MisPacientes";
+import MiAgenda from "@/components/MiAgenda";
 import IdleTimeout from "@/components/IdleTimeout";
 
 type Me = { nombre: string | null; rol: string };
@@ -36,6 +37,7 @@ export default function Page() {
         <div className="tabs">
           {!esMedico && <button className={tab === "inicio" ? "on" : ""} onClick={() => setTab("inicio")}>Inicio</button>}
           <button className={tab === "agenda" ? "on" : ""} onClick={() => setTab("agenda")}>Agenda</button>
+          {esMedico && <button className={tab === "mi-agenda" ? "on" : ""} onClick={() => setTab("mi-agenda")}>Mi agenda</button>}
           {me.rol === "medico" && <button className={tab === "mis-pacientes" ? "on" : ""} onClick={() => setTab("mis-pacientes")}>Mis pacientes</button>}
           {!esMedico && <button className={tab === "pacientes" ? "on" : ""} onClick={() => setTab("pacientes")}>Pacientes</button>}
           {!esMedico && <button className={tab === "metricas" ? "on" : ""} onClick={() => setTab("metricas")}>Métricas</button>}
@@ -77,6 +79,7 @@ export default function Page() {
       <div className="main">
         {tab === "inicio" && !esMedico && <Inicio />}
         {tab === "agenda" && <Agenda />}
+        {tab === "mi-agenda" && esMedico && <MiAgenda />}
         {tab === "mis-pacientes" && me.rol === "medico" && <MisPacientes />}
         {tab === "pacientes" && <Pacientes rol={me.rol} />}
         {tab === "config" && <Config sub={configSub} setSub={setConfigSub} rol={me.rol} />}

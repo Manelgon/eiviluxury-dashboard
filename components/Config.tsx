@@ -412,7 +412,7 @@ function Tratamientos() {
     <>
       <p className="nota">El precio en blanco = "requiere valoración" (Alexia no dará cifra). Los cambios los usa el bot al momento.</p>
       <table className="t">
-        <thead><tr><th>Tratamiento</th><th>Área</th><th>Precio €</th><th>Valoración</th><th>Min</th><th>Activo</th></tr></thead>
+        <thead><tr><th>Tratamiento</th><th>Área</th><th>Precio €</th><th>Valoración</th><th>Min</th><th>💉 Enferm.</th><th>Activo</th></tr></thead>
         <tbody>
           {lista.map((t) => (
             <tr key={t.id} style={{ opacity: t.activo ? 1 : 0.5 }}>
@@ -426,6 +426,7 @@ function Tratamientos() {
               <td style={{ width: 80 }}>
                 <input type="number" defaultValue={t.duracion_min} onBlur={(e) => actualizar(t.id, { duracion_min: Number(e.target.value) || 30 })} />
               </td>
+              <td><input type="checkbox" title="Requiere enfermera de apoyo" defaultChecked={t.requiere_enfermeria} onChange={(e) => actualizar(t.id, { requiere_enfermeria: e.target.checked })} /></td>
               <td><input type="checkbox" defaultChecked={t.activo} onChange={(e) => actualizar(t.id, { activo: e.target.checked })} /></td>
             </tr>
           ))}

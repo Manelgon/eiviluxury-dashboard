@@ -26,7 +26,9 @@ export async function api<T = any>(ruta: string, opts: { method?: string; body?:
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401) setToken(null);
-    throw new Error(data.error ?? `Error ${res.status}`);
+    const e: any = new Error(data.error ?? `Error ${res.status}`);
+    Object.assign(e, data); // extras del error (ej. citas_conflicto en un 409)
+    throw e;
   }
   return data as T;
 }

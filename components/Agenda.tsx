@@ -8,6 +8,7 @@ const DIAS_SEMANA = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 interface Cita {
   id: number; medico_id: number; inicio: string; estado: string;
   confirmada_paciente?: boolean; notas?: string | null;
+  reactiva?: boolean; enfermera_id?: number | null; es_apoyo?: boolean;
   pacientes?: { id: number; nombre: string | null; apellidos: string | null; telefono: string } | null;
   tratamientos?: { nombre: string } | null;
 }
@@ -146,8 +147,10 @@ function VistaDia({ fecha, refresco, onError, onNueva, onCambio }:
                       onClick={() => citas.length === 0 && abierto && onNueva(m.id, f)}>
                       {citas.map((c) => (
                         <div key={c.id} className={`bloque-cita ${c.estado}`}
+                          style={c.es_apoyo ? { opacity: 0.75, borderLeftStyle: "dashed" } : undefined}
                           onClick={(e) => { e.stopPropagation(); setSel(c); }}>
-                          <b>{fmtHora(c.inicio)}</b> {[c.pacientes?.nombre, c.pacientes?.apellidos].filter(Boolean).join(" ") || c.pacientes?.telefono}
+                          <b>{fmtHora(c.inicio)}</b> {c.reactiva ? "⚡ " : ""}{[c.pacientes?.nombre, c.pacientes?.apellidos].filter(Boolean).join(" ") || c.pacientes?.telefono}
+                          {c.es_apoyo && <small>apoyo</small>}
                           {c.tratamientos && <small>{c.tratamientos.nombre}</small>}
                         </div>
                       ))}
@@ -173,6 +176,12 @@ function VistaDia({ fecha, refresco, onError, onNueva, onCambio }:
                   <button className="btn mini suave" onClick={() => cambiar(sel.id, "completada")}>Completada</button>
                   <button className="btn mini suave" onClick={() => cambiar(sel.id, "no_show")}>No vino</button>
                   <button className="btn mini suave" onClick={() => { if (confirm("¿Cancelar esta cita?")) cambiar(sel.id, "cancelada"); }}>Cancelar cita</button>
+                  <button className="btn mini suave" title="Cancela, apunta al paciente en lista de espera y Alexia le avisa por WhatsApp"
+                    onClick={async () => {
+                      if (!confirm("¿Cancelar y pasar al paciente a lista de espera? Alexia le avisará por WhatsApp y podrá reprogramar respondiendo.")) return;
+                      try { await api(`citas/${sel.id}`, { method: "PATCH", body: { estado: "cancelada", a_lista_espera: true } }); setSel(null); onCambio(); }
+                      catch (e: any) { alert(e.message); }
+                    }}>Cancelar → espera 📩</button>
                 </>
               )}
               <button className="btn suave" onClick={() => setSel(null)}>Cerrar</button>
@@ -300,7 +309,10 @@ function NuevaCita({ fecha, medicos, preMedico, preHora, onCerrar }:
   const [dia, setDia] = useState(fecha);
   const [hora, setHora] = useState(preHora ?? "10:00");
   const [notas, setNotas] = useState("");
+  const [enfermeraId, setEnfermeraId] = useState<number | "">("");
   const [error, setError] = useState("");
+  const enfermeras = medicos.filter((m) => m.tipo === "enfermera");
+  const tratSel = tratamientos.find((t) => t.id === tratId);
 
   useEffect(() => { api<any[]>("tratamientos").then(setTratamientos).catch(() => {}); }, []);
   useEffect(() => {
@@ -316,7 +328,7 @@ function NuevaCita({ fecha, medicos, preMedico, preHora, onCerrar }:
     try {
       await api("citas", {
         method: "POST",
-        body: { paciente_id: pacienteId, medico_id: medicoId, tratamiento_id: tratId, fecha: dia, hora, duracion_min: trat?.duracion_min ?? 30, notas: notas || null },
+        body: { paciente_id: pacienteId, medico_id: medicoId, tratamiento_id: tratId, fecha: dia, hora, duracion_min: trat?.duracion_min ?? 30, notas: notas || null, enfermera_id: enfermeraId || null },
       });
       onCerrar();
     } catch (e: any) { setError(e.message); }
@@ -348,9 +360,20 @@ function NuevaCita({ fecha, medicos, preMedico, preHora, onCerrar }:
         <div className="campo"><label>Tratamiento (opcional)</label>
           <select value={tratId ?? ""} onChange={(e) => setTratId(e.target.value ? Number(e.target.value) : null)}>
             <option value="">— Sin especificar —</option>
-            {tratamientos.filter((t) => t.activo).map((t) => <option key={t.id} value={t.id}>{t.nombre} ({t.duracion_min}′)</option>)}
+            {tratamientos.filter((t) => t.activo).map((t) => <option key={t.id} value={t.id}>{t.nombre} ({t.duracion_min}′){t.requiere_enfermeria ? " · 💉" : ""}</option>)}
           </select>
         </div>
+        {enfermeras.length > 0 && (
+          <div className="campo">
+            <label>Enfermera de apoyo {tratSel?.requiere_enfermeria ? "· este tratamiento la requiere 💉" : "(opcional)"}</label>
+            <select value={enfermeraId} onChange={(e) => setEnfermeraId(e.target.value ? Number(e.target.value) : "")}
+              style={tratSel?.requiere_enfermeria && !enfermeraId ? { borderColor: "var(--rojo)" } : undefined}>
+              <option value="">— Sin apoyo —</option>
+              {enfermeras.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+            </select>
+            {enfermeraId !== "" && <p className="nota" style={{ margin: "4px 0 0", fontSize: 11.5 }}>La cita aparecerá también en su columna y ocupará su franja.</p>}
+          </div>
+        )}
         <div className="campo" style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}><label>Fecha</label><input type="date" value={dia} onChange={(e) => setDia(e.target.value)} /></div>
           <div style={{ flex: 1 }}><label>Hora</label><input type="time" value={hora} onChange={(e) => setHora(e.target.value)} step={300} /></div>

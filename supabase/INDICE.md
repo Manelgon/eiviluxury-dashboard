@@ -14,8 +14,9 @@ Proyecto Supabase: `zohkencmpagiwxyljsiq` · Requiere haber aplicado antes los S
 | 13 | `patch-firmados.sql` | Archivo de firmados: bucket privado `rgpd-firmados` en Storage + campos firmado_path/at/por en documentos | ✅ |
 | 14 | `patch-historia-clinica.sql` | HISTORIA CLÍNICA fundacional: asignación paciente-médico-área (único por área), catálogo CIE-10, consultas con VERSIONADO inmutable (trigger + motivo de edición obligatorio), diagnósticos por consulta + lista de problemas auto-sincronizada, alergias transversales, constantes, registro de accesos. CIE-10-ES 2026 importado (102.448 filas) | ✅ |
 | 15 | `patch-lista-espera.sql` | Tabla `lista_espera` (paciente/área/médico preferido/preferencia, única pendiente por paciente+área): el bot apunta cuando el médico de referencia no tiene hueco esta semana; el médico la gestiona desde su perfil del panel | ✅ |
-| 16 | `patch-ficha-facultativo.sql` | Ficha completa del facultativo en `medicos` (nº colegiado, DNI, teléfono, email, fecha nacimiento, dirección, bio — modelo SANIAN): el alta de usuario rol médico crea a la vez acceso + ficha | ⬜ pendiente |
-| 17 | `patch-quitar-especialidad.sql` | Elimina `medicos.especialidad`: la especialidad son las áreas (medico_areas), sin duplicar el dato | ⬜ pendiente |
+| 16 | `patch-ficha-facultativo.sql` | Ficha completa del facultativo en `medicos` (nº colegiado, DNI, teléfono, email, fecha nacimiento, dirección, bio — modelo SANIAN): el alta de usuario rol médico crea a la vez acceso + ficha | ✅ |
+| 17 | `patch-quitar-especialidad.sql` | Elimina `medicos.especialidad`: la especialidad son las áreas (medico_areas), sin duplicar el dato | ✅ |
+| 18 | `patch-mi-agenda.sql` | Mi agenda del médico freelancer: `antelacion_horas` en medicos, `reactiva` (⚡ hoy-para-hoy) y `enfermera_id` (apoyo) en citas, `requiere_enfermeria` en tratamientos, tabla `avisos` (cola de WhatsApp proactivo del bot) | ⬜ pendiente |
 
 > Nota: los patches 1-9 ya aplicados conservan la nomenclatura antigua ("cliente") en su texto — NO se editan (regla del índice). El nombre actual de las tablas es el que fija el patch 10.
 

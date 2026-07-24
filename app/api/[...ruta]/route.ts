@@ -101,7 +101,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (metodo === "GET") {
         const { data, error } = await db()
           .from("medicos")
-          .select("id, nombre, activo, tipo, num_colegiado, dni, telefono, email, fecha_nacimiento, direccion, bio, medico_areas(area_id)")
+          .select("id, nombre, activo, tipo, antelacion_horas, num_colegiado, dni, telefono, email, fecha_nacimiento, direccion, bio, medico_areas(area_id)")
           .order("nombre");
         if (error) return err(error.message, 500);
         return json(data);
@@ -126,7 +126,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       }
       if (metodo === "PATCH" && r1) {
         const cambios: Record<string, unknown> = {};
-        for (const k of ["nombre", "tipo", "activo", "num_colegiado", "dni", "telefono", "email", "fecha_nacimiento", "direccion", "bio"])
+        for (const k of ["nombre", "tipo", "activo", "antelacion_horas", "num_colegiado", "dni", "telefono", "email", "fecha_nacimiento", "direccion", "bio"])
           if (k in body) cambios[k] = body[k];
         if (Object.keys(cambios).length) {
           const { error } = await db().from("medicos").update(cambios).eq("id", Number(r1));
@@ -190,7 +190,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
 
       const { data: citas, error: e2 } = await db()
         .from("citas")
-        .select("id, medico_id, inicio, fin, estado, confirmada_paciente, notas, pacientes(id, nombre, apellidos, telefono), tratamientos(nombre)")
+        .select("id, medico_id, enfermera_id, reactiva, inicio, fin, estado, confirmada_paciente, notas, pacientes(id, nombre, apellidos, telefono), tratamientos(nombre)")
         .gte("inicio", ini)
         .lte("inicio", fin)
         .neq("estado", "cancelada")
@@ -209,7 +209,9 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         medicos: (medicos ?? []).map((m: any) => ({
           ...m,
           horario: (horarios ?? []).filter((h: any) => h.medico_id === m.id),
-          citas: (citas ?? []).filter((c: any) => c.medico_id === m.id),
+            // La cita aparece en la columna del médico Y en la de la enfermera de apoyo
+          citas: (citas ?? []).filter((c: any) => c.medico_id === m.id || c.enfermera_id === m.id)
+            .map((c: any) => ({ ...c, es_apoyo: c.enfermera_id === m.id && c.medico_id !== m.id })),
         })),
       });
     }
@@ -220,32 +222,80 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         // el rol medico solo puede crear citas EN SU PROPIA agenda (ej. al resolver su lista de espera)
         const esMedicoPropio = u.rol === "medico" && u.medico_id;
         if (!puede(u, "gestion") && !esMedicoPropio) return err("Sin permiso", 403);
-        const { paciente_id, tratamiento_id, fecha, hora, duracion_min, notas } = body;
+        const { paciente_id, tratamiento_id, fecha, hora, duracion_min, notas, enfermera_id } = body;
         const medico_id = esMedicoPropio && !puede(u, "gestion") ? u.medico_id : body.medico_id;
         if (!paciente_id || !medico_id || !fecha || !hora) return err("Faltan datos de la cita");
         const inicio = madridAUtc(fecha, hora);
         const fin = sumarMin(inicio, Number(duracion_min ?? 30));
+        const reactiva = fecha === hoyMadrid(); // ⚡ reserva de hoy para hoy
+        // Si lleva enfermera de apoyo, su franja también debe estar libre
+        if (enfermera_id) {
+          const { data: pisada } = await db().from("citas").select("id")
+            .or(`medico_id.eq.${enfermera_id},enfermera_id.eq.${enfermera_id}`)
+            .in("estado", ["pendiente", "confirmada"])
+            .lt("inicio", fin.toISOString()).gt("fin", inicio.toISOString()).limit(1);
+          if ((pisada?.length ?? 0) > 0) return err("La enfermera de apoyo ya está ocupada en esa franja");
+        }
         const { data, error } = await db()
           .from("citas")
           .insert({
             paciente_id, medico_id,
             tratamiento_id: tratamiento_id ?? null,
+            enfermera_id: enfermera_id ?? null,
             inicio: inicio.toISOString(), fin: fin.toISOString(),
-            estado: "confirmada", notas: notas ?? null, creada_via: "panel",
+            estado: "confirmada", notas: notas ?? null, creada_via: "panel", reactiva,
           })
           .select("id")
           .single();
         if (error) return error.code === "23P01" ? err("Ese hueco se solapa con otra cita del médico") : err(error.message, 500);
-        void auditar(u, "cita.crear", { tipo: "cita", id: data.id }, { paciente_id, medico_id, fecha, hora });
-        return json({ ok: true, id: data.id });
+        void auditar(u, "cita.crear", { tipo: "cita", id: data.id }, { paciente_id, medico_id, fecha, hora, reactiva, enfermera_id: enfermera_id ?? null });
+        return json({ ok: true, id: data.id, reactiva });
       }
       if (metodo === "PATCH" && r1) {
-        if (!puede(u, "gestion")) return err("Sin permiso", 403);
+        // gestion: cualquier cita · medico: solo las suyas
+        const { data: cita } = await db().from("citas")
+          .select("id, paciente_id, medico_id, tratamiento_id, inicio, estado, pacientes(id, nombre, telefono), medicos(nombre), tratamientos(nombre, area_id)")
+          .eq("id", Number(r1)).maybeSingle();
+        if (!cita) return err("Cita no encontrada", 404);
+        const esSuya = u.rol === "medico" && u.medico_id === cita.medico_id;
+        if (!puede(u, "gestion") && !esSuya) return err("Sin permiso", 403);
         const { estado } = body;
         if (!["pendiente", "confirmada", "cancelada", "completada", "no_show"].includes(estado)) return err("Estado no válido");
         const { error } = await db().from("citas").update({ estado }).eq("id", Number(r1));
         if (error) return err(error.message, 500);
-        void auditar(u, "cita.cambiar_estado", { tipo: "cita", id: r1 }, { estado });
+        void auditar(u, "cita.cambiar_estado", { tipo: "cita", id: r1 }, { estado, paciente_id: cita.paciente_id });
+
+        // Cancelación → lista de espera + aviso WhatsApp automático al paciente
+        if (estado === "cancelada" && body.a_lista_espera === true) {
+          const p: any = cita.pacientes, m: any = cita.medicos, t: any = cita.tratamientos;
+          // Área: la del tratamiento; si no lleva, la única del médico
+          let areaId: number | null = t?.area_id ?? null;
+          if (!areaId) {
+            const { data: ma } = await db().from("medico_areas").select("area_id").eq("medico_id", cita.medico_id);
+            areaId = ma?.length === 1 ? ma[0].area_id : (ma?.[0]?.area_id ?? null);
+          }
+          if (areaId) {
+            const { data: le, error: eLE } = await db().from("lista_espera").insert({
+              paciente_id: cita.paciente_id, area_id: areaId, medico_id: cita.medico_id,
+              tratamiento_id: cita.tratamiento_id, creada_via: "panel",
+              preferencia: "reprogramar: su cita fue cancelada por ausencia del médico",
+            }).select("id").single();
+            if (!eLE || eLE.code === "23505") {
+              const cuando = new Date(cita.inicio).toLocaleString("es-ES", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
+              const mensaje =
+                `Hola${p?.nombre ? ` ${p.nombre}` : ""}, soy Alexia, de *Clínica EiviLuxury* 🙏 Lamento comunicarte que tu cita del ${cuando}` +
+                `${m?.nombre ? ` con ${m.nombre}` : ""}${t?.nombre ? ` (${t.nombre})` : ""} ha tenido que cancelarse por una ausencia del doctor. ` +
+                `Te he puesto con prioridad en su lista de espera y te avisaremos en cuanto haya hueco. ` +
+                `Si lo prefieres, dímelo y te busco ahora mismo otra fecha u otro doctor.`;
+              await db().from("avisos").insert({
+                paciente_id: cita.paciente_id, telefono: p?.telefono, tipo: "cita_cancelada_espera",
+                mensaje, payload: { cita_id: cita.id, lista_espera_id: le?.id ?? null, medico: m?.nombre ?? null },
+              });
+              void auditar(u, "cita.cancelada_a_espera", { tipo: "cita", id: r1 },
+                { paciente_id: cita.paciente_id, area_id: areaId, aviso: "whatsapp_encolado" });
+            }
+          }
+        }
         return json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -560,7 +610,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (metodo === "GET") {
         const { data, error } = await db()
           .from("tratamientos")
-          .select("id, nombre, descripcion, precio_eur, requiere_valoracion, duracion_min, activo, area_id, areas(nombre)")
+          .select("id, nombre, descripcion, precio_eur, requiere_valoracion, requiere_enfermeria, duracion_min, activo, area_id, areas(nombre)")
           .order("nombre");
         return error ? err(error.message, 500) : json(data);
       }
@@ -715,16 +765,22 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           .order("dia_semana");
         return error ? err(error.message, 500) : json(data);
       }
-      if (!puede(u, "config")) return err("Sin permiso", 403);
+      // config gestiona todos; médico/enfermería vinculados gestionan SOLO el suyo
+      const propio = ["medico", "enfermera"].includes(u.rol) && u.medico_id;
+      if (!puede(u, "config") && !propio) return err("Sin permiso", 403);
       if (metodo === "POST") {
-        const { error } = await db().from("horarios").insert(body);
-        if (!error) void auditar(u, "config.horario.crear", { tipo: "horario" }, body);
+        const datos = { ...body };
+        if (!puede(u, "config")) datos.medico_id = u.medico_id; // el servidor fuerza el suyo
+        const { error } = await db().from("horarios").insert(datos);
+        if (!error) void auditar(u, propio && !puede(u, "config") ? "mi_agenda.horario.crear" : "config.horario.crear", { tipo: "horario" }, datos);
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "DELETE" && r1) {
         const { data: fila } = await db().from("horarios").select("*").eq("id", Number(r1)).maybeSingle();
+        if (!fila) return err("Tramo no encontrado", 404);
+        if (!puede(u, "config") && fila.medico_id !== u.medico_id) return err("Solo puedes tocar tu propio horario", 403);
         const { error } = await db().from("horarios").delete().eq("id", Number(r1));
-        if (!error) void auditar(u, "config.horario.eliminar", { tipo: "horario", id: r1 }, { eliminado: fila });
+        if (!error) void auditar(u, !puede(u, "config") ? "mi_agenda.horario.eliminar" : "config.horario.eliminar", { tipo: "horario", id: r1 }, { eliminado: fila });
         return error ? err(error.message, 500) : json({ ok: true });
       }
       return err("Método no soportado", 405);
@@ -739,24 +795,62 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           .order("inicio");
         return error ? err(error.message, 500) : json(data);
       }
-      if (!puede(u, "config")) return err("Sin permiso", 403);
+      const propio = ["medico", "enfermera"].includes(u.rol) && u.medico_id;
+      if (!puede(u, "config") && !propio) return err("Sin permiso", 403);
       if (metodo === "POST") {
-        const { medico_id, fecha_inicio, hora_inicio, fecha_fin, hora_fin, motivo } = body;
+        const { fecha_inicio, hora_inicio, fecha_fin, hora_fin, motivo } = body;
+        const medico_id = !puede(u, "config") ? u.medico_id : body.medico_id;
         if (!medico_id || !fecha_inicio || !fecha_fin) return err("Faltan datos del bloqueo");
-        const { error } = await db().from("bloqueos").insert({
-          medico_id,
-          inicio: madridAUtc(fecha_inicio, hora_inicio ?? "00:00").toISOString(),
-          fin: madridAUtc(fecha_fin, hora_fin ?? "23:59").toISOString(),
-          motivo: motivo ?? null,
-        });
-        if (!error) void auditar(u, "config.bloqueo.crear", { tipo: "bloqueo" }, { medico_id, fecha_inicio, fecha_fin, motivo });
+        const ini = madridAUtc(fecha_inicio, hora_inicio ?? "00:00").toISOString();
+        const fin = madridAUtc(fecha_fin, hora_fin ?? "23:59").toISOString();
+        // REGLA: no se puede bloquear encima de citas reservadas — primero hay que resolverlas
+        const { data: conflicto } = await db().from("citas")
+          .select("id, inicio, fin, estado, pacientes(nombre, apellidos, telefono), tratamientos(nombre)")
+          .or(`medico_id.eq.${medico_id},enfermera_id.eq.${medico_id}`)
+          .in("estado", ["pendiente", "confirmada"])
+          .lt("inicio", fin).gt("fin", ini).order("inicio");
+        if ((conflicto?.length ?? 0) > 0) {
+          return json({
+            error: `Hay ${conflicto!.length} cita(s) reservadas dentro de ese periodo. Resuélvelas primero (cancelar → lista de espera, con aviso automático al paciente) y vuelve a crear el bloqueo.`,
+            citas_conflicto: conflicto,
+          }, 409);
+        }
+        const { error } = await db().from("bloqueos").insert({ medico_id, inicio: ini, fin, motivo: motivo ?? null });
+        if (!error) void auditar(u, !puede(u, "config") ? "mi_agenda.bloqueo.crear" : "config.bloqueo.crear", { tipo: "bloqueo" }, { medico_id, fecha_inicio, fecha_fin, hora_inicio: hora_inicio ?? null, hora_fin: hora_fin ?? null, motivo });
         return error ? err(error.message, 500) : json({ ok: true });
       }
       if (metodo === "DELETE" && r1) {
         const { data: fila } = await db().from("bloqueos").select("*").eq("id", Number(r1)).maybeSingle();
+        if (!fila) return err("Bloqueo no encontrado", 404);
+        if (!puede(u, "config") && fila.medico_id !== u.medico_id) return err("Solo puedes tocar tus propios bloqueos", 403);
         const { error } = await db().from("bloqueos").delete().eq("id", Number(r1));
-        if (!error) void auditar(u, "config.bloqueo.eliminar", { tipo: "bloqueo", id: r1 }, { eliminado: fila });
+        if (!error) void auditar(u, !puede(u, "config") ? "mi_agenda.bloqueo.eliminar" : "config.bloqueo.eliminar", { tipo: "bloqueo", id: r1 }, { eliminado: fila });
         return error ? err(error.message, 500) : json({ ok: true });
+      }
+      return err("Método no soportado", 405);
+    }
+
+    // ---------- Mi agenda (autogestión del médico/enfermería freelancer) ----------
+    case "mi-agenda": {
+      if (!["medico", "enfermera"].includes(u.rol) || !u.medico_id)
+        return err("Solo para médicos o enfermería vinculados a su ficha", 403);
+      if (metodo === "GET") {
+        const [{ data: ficha }, { data: horarios }, { data: bloqueos }, { data: citasProx }] = await Promise.all([
+          db().from("medicos").select("id, nombre, antelacion_horas").eq("id", u.medico_id).maybeSingle(),
+          db().from("horarios").select("id, dia_semana, hora_inicio, hora_fin").eq("medico_id", u.medico_id).order("dia_semana").order("hora_inicio"),
+          db().from("bloqueos").select("id, inicio, fin, motivo").eq("medico_id", u.medico_id).gte("fin", new Date().toISOString()).order("inicio"),
+          db().from("citas").select("id", { count: "exact", head: false }).eq("medico_id", u.medico_id)
+            .in("estado", ["pendiente", "confirmada"]).gte("inicio", new Date().toISOString()).limit(1),
+        ]);
+        return json({ ficha, horarios: horarios ?? [], bloqueos: bloqueos ?? [], tiene_citas_futuras: (citasProx?.length ?? 0) > 0 });
+      }
+      if (metodo === "PATCH") {
+        const horas = Number(body.antelacion_horas);
+        if (!Number.isFinite(horas) || horas < 0 || horas > 336) return err("Antelación no válida (0 a 336 horas)");
+        const { error } = await db().from("medicos").update({ antelacion_horas: horas }).eq("id", u.medico_id);
+        if (error) return err(error.message, 500);
+        void auditar(u, "mi_agenda.antelacion", { tipo: "medico", id: String(u.medico_id) }, { antelacion_horas: horas });
+        return json({ ok: true });
       }
       return err("Método no soportado", 405);
     }
