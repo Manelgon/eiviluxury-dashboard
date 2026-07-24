@@ -236,7 +236,7 @@ function Usuarios({ rolActual }: { rolActual: string }) {
                 </select>
               </td>
               <td style={{ width: 200 }}>
-                {["medico", "enfermera"].includes(us.rol) ? (
+                {["medico", "enfermera", "direccion", "admin"].includes(us.rol) ? (
                   us.medico_id ? (
                     <span title="La vinculación es fija: no se puede cambiar ni quitar">
                       🔒 {us.medicos?.nombre ?? medicos.find((m) => m.id === us.medico_id)?.nombre ?? `Ficha #${us.medico_id}`}
@@ -290,7 +290,7 @@ function CrearUsuario({ rolActual, medicos, onCerrar }: { rolActual: string; med
   const TIPOS = [
     { id: "medico", t: "🩺 Médico", d: "Acceso + ficha de facultativo (nº colegiado, áreas, agenda). Solo ve su agenda y sus pacientes." },
     { id: "enfermera", t: "💉 Enfermería", d: "Acceso + ficha de enfermería con su columna de agenda." },
-    { id: "direccion", t: "👔 Dirección", d: "Acceso total: gestión, configuración, usuarios, logs e historia clínica." },
+    { id: "direccion", t: "👔 Dirección", d: "Acceso total: gestión, configuración, usuarios, logs e historia clínica. Si además pasa consulta (directivo-médico), vincúlale después su ficha en esta misma tabla y tendrá también Mi agenda y Mis pacientes." },
     { id: "recepcion", t: "🛎 Recepción", d: "Gestión de agenda, pacientes y lista de espera. Sin datos clínicos ni usuarios." },
     ...(rolActual === "admin" ? [{ id: "admin", t: "⚙ Admin (técnico)", d: "Todo, incluido conceder rol admin." }] : []),
   ];

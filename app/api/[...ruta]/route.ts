@@ -64,13 +64,13 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     }
     const { data: fila } = await db()
       .from("usuarios_panel")
-      .select("nombre, rol")
+      .select("nombre, rol, medico_id")
       .eq("user_id", data.user.id)
       .eq("activo", true)
       .maybeSingle();
     if (!fila) return err("Tu usuario no tiene acceso al panel", 403);
     void auditar({ user_id: data.user.id, email, nombre: fila.nombre, rol: fila.rol, medico_id: null } as UsuarioPanel, "auth.login", { tipo: "auth", label: email });
-    return json({ token: data.session.access_token, nombre: fila.nombre, rol: fila.rol });
+    return json({ token: data.session.access_token, nombre: fila.nombre, rol: fila.rol, medico_id: fila.medico_id ?? null });
   }
 
   // ---------- Solicitud pública de derechos RGPD (sin token) ----------
@@ -832,12 +832,13 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           .order("dia_semana");
         return error ? err(error.message, 500) : json(data);
       }
-      // config gestiona todos; médico/enfermería vinculados gestionan SOLO el suyo
-      const propio = ["medico", "enfermera"].includes(u.rol) && u.medico_id;
+      // config gestiona todos; cualquier usuario con ficha vinculada gestiona SOLO el suyo
+      const propio = Boolean(u.medico_id);
       if (!puede(u, "config") && !propio) return err("Sin permiso", 403);
       if (metodo === "POST") {
         const datos = { ...body };
         if (!puede(u, "config")) datos.medico_id = u.medico_id; // el servidor fuerza el suyo
+        if (!datos.medico_id) datos.medico_id = u.medico_id;    // Mi agenda de un directivo-médico
         const { error } = await db().from("horarios").insert(datos);
         if (!error) void auditar(u, propio && !puede(u, "config") ? "mi_agenda.horario.crear" : "config.horario.crear", { tipo: "horario" }, datos);
         return error ? err(error.message, 500) : json({ ok: true });
@@ -862,11 +863,11 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           .order("inicio");
         return error ? err(error.message, 500) : json(data);
       }
-      const propio = ["medico", "enfermera"].includes(u.rol) && u.medico_id;
+      const propio = Boolean(u.medico_id);
       if (!puede(u, "config") && !propio) return err("Sin permiso", 403);
       if (metodo === "POST") {
         const { fecha_inicio, hora_inicio, fecha_fin, hora_fin, motivo } = body;
-        const medico_id = !puede(u, "config") ? u.medico_id : body.medico_id;
+        const medico_id = !puede(u, "config") ? u.medico_id : (body.medico_id ?? u.medico_id);
         if (!medico_id || !fecha_inicio || !fecha_fin) return err("Faltan datos del bloqueo");
         const ini = madridAUtc(fecha_inicio, hora_inicio ?? "00:00").toISOString();
         const fin = madridAUtc(fecha_fin, hora_fin ?? "23:59").toISOString();
@@ -897,10 +898,10 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       return err("Método no soportado", 405);
     }
 
-    // ---------- Mi agenda (autogestión del médico/enfermería freelancer) ----------
+    // ---------- Mi agenda (autogestión de quien tenga ficha: médico, enfermería o directivo-médico) ----------
     case "mi-agenda": {
-      if (!["medico", "enfermera"].includes(u.rol) || !u.medico_id)
-        return err("Solo para médicos o enfermería vinculados a su ficha", 403);
+      if (!u.medico_id)
+        return err("Tu usuario no está vinculado a ninguna ficha de médico (Configuración → Usuarios y permisos)", 403);
       if (metodo === "GET") {
         const [{ data: ficha }, { data: horarios }, { data: bloqueos }, { data: citasProx }] = await Promise.all([
           db().from("medicos").select("id, nombre, antelacion_horas").eq("id", u.medico_id).maybeSingle(),
@@ -955,15 +956,14 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           if (error) return err(error.message, 500);
           return json(data);
         }
-        // Mis pacientes (rol médico): pacientes con asignación activa a este médico
+        // Mis pacientes: pacientes con asignación activa a la ficha del usuario
+        // (rol médico, o directivo/admin que también pasa consulta)
         if (q.get("mias") === "1") {
-          const ambito = await ambitoClinico(u);
-          if (!ambito) return errAmbito(u);
-          if (ambito.total) return err("Solo para el rol médico", 400);
+          if (!u.medico_id) return errAmbito(u);
           const { data, error } = await db()
             .from("paciente_medico_area")
             .select("paciente_id, area_id, areas(nombre), pacientes(id, nombre, apellidos, telefono, activo)")
-            .eq("medico_id", ambito.medicoId).eq("activo", true)
+            .eq("medico_id", u.medico_id).eq("activo", true)
             .order("created_at", { ascending: false });
           if (error) return err(error.message, 500);
           return json(data);

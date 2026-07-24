@@ -10,7 +10,7 @@ import MisPacientes from "@/components/MisPacientes";
 import MiAgenda from "@/components/MiAgenda";
 import IdleTimeout from "@/components/IdleTimeout";
 
-type Me = { nombre: string | null; rol: string };
+type Me = { nombre: string | null; rol: string; medico_id?: number | null };
 
 export default function Page() {
   const [me, setMe] = useState<Me | null>(null);
@@ -37,8 +37,8 @@ export default function Page() {
         <div className="tabs">
           {!esMedico && <button className={tab === "inicio" ? "on" : ""} onClick={() => setTab("inicio")}>Inicio</button>}
           <button className={tab === "agenda" ? "on" : ""} onClick={() => setTab("agenda")}>Agenda</button>
-          {esMedico && <button className={tab === "mi-agenda" ? "on" : ""} onClick={() => setTab("mi-agenda")}>Mi agenda</button>}
-          {me.rol === "medico" && <button className={tab === "mis-pacientes" ? "on" : ""} onClick={() => setTab("mis-pacientes")}>Mis pacientes</button>}
+          {Boolean(me.medico_id) && <button className={tab === "mi-agenda" ? "on" : ""} onClick={() => setTab("mi-agenda")}>Mi agenda</button>}
+          {Boolean(me.medico_id) && me.rol !== "enfermera" && <button className={tab === "mis-pacientes" ? "on" : ""} onClick={() => setTab("mis-pacientes")}>Mis pacientes</button>}
           {!esMedico && <button className={tab === "pacientes" ? "on" : ""} onClick={() => setTab("pacientes")}>Pacientes</button>}
           {!esMedico && <button className={tab === "metricas" ? "on" : ""} onClick={() => setTab("metricas")}>Métricas</button>}
         </div>
@@ -79,8 +79,8 @@ export default function Page() {
       <div className="main">
         {tab === "inicio" && !esMedico && <Inicio />}
         {tab === "agenda" && <Agenda />}
-        {tab === "mi-agenda" && esMedico && <MiAgenda />}
-        {tab === "mis-pacientes" && me.rol === "medico" && <MisPacientes />}
+        {tab === "mi-agenda" && Boolean(me.medico_id) && <MiAgenda />}
+        {tab === "mis-pacientes" && Boolean(me.medico_id) && me.rol !== "enfermera" && <MisPacientes />}
         {tab === "pacientes" && <Pacientes rol={me.rol} />}
         {tab === "config" && <Config sub={configSub} setSub={setConfigSub} rol={me.rol} />}
         {tab === "metricas" && <Metricas />}
@@ -99,11 +99,11 @@ function Login({ onOk }: { onOk: (m: Me) => void }) {
     e.preventDefault();
     setEnviando(true); setError("");
     try {
-      const r = await api<{ token: string; nombre: string; rol: string }>("login", {
+      const r = await api<{ token: string; nombre: string; rol: string; medico_id?: number | null }>("login", {
         method: "POST", body: { email, password },
       });
       setToken(r.token);
-      onOk({ nombre: r.nombre, rol: r.rol });
+      onOk({ nombre: r.nombre, rol: r.rol, medico_id: r.medico_id ?? null });
     } catch (err: any) {
       setError(err.message);
     } finally {
