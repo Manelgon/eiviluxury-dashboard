@@ -161,7 +161,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     }
 
     case "agenda": {
-      let medQ = db().from("medicos").select("id, nombre, tipo, medico_areas(areas(nombre))").eq("activo", true).order("nombre");
+      let medQ = db().from("medicos").select("id, nombre, tipo, medico_areas(area_id, areas(nombre))").eq("activo", true).order("nombre");
       // El médico ve su columna + las de enfermería; enfermera y demás roles ven todo
       if (u.rol === "medico" && u.medico_id) medQ = medQ.or(`id.eq.${u.medico_id},tipo.eq.enfermera`);
       const { data: medicos, error: e1 } = await medQ;
@@ -673,7 +673,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           if (rol === "medico" && !ficha.num_colegiado?.trim())
             return err("El número de colegiado es obligatorio para crear una ficha de médico");
           const areaIds = (Array.isArray(ficha.areas) ? ficha.areas : []).map(Number).filter(Boolean);
-          if (rol === "medico" && areaIds.length === 0) return err("Elige al menos un área para el médico");
+          if (areaIds.length === 0) return err(rol === "medico" ? "Elige al menos un área para el médico" : "Elige al menos un área para la enfermera (también trabajan por áreas)");
           const { data: m, error: eM } = await db().from("medicos").insert({
             nombre: ficha.nombre.trim(),
             tipo: rol === "enfermera" ? "enfermera" : "medico",

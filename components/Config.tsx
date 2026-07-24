@@ -365,7 +365,7 @@ function CrearUsuario({ rolActual, medicos, onCerrar }: { rolActual: string; med
                       <div style={{ flex: 2 }}><label>Dirección</label>
                         <input value={ficha.direccion} onChange={(e) => setFicha({ ...ficha, direccion: e.target.value })} /></div>
                     </div>
-                    <div className="campo"><label>Áreas en las que trabaja {tipo === "medico" ? "*" : ""}</label>
+                    <div className="campo"><label>Áreas en las que trabaja * (las enfermeras también van por áreas)</label>
                       <div>
                         {areas.map((a) => (
                           <label key={a.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 12, fontSize: 13 }}>

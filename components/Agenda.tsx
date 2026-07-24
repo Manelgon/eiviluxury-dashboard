@@ -12,7 +12,7 @@ interface Cita {
   pacientes?: { id: number; nombre: string | null; apellidos: string | null; telefono: string } | null;
   tratamientos?: { nombre: string } | null;
 }
-interface Medico { id: number; nombre: string; tipo?: string; medico_areas?: { areas: { nombre: string } | null }[]; horario?: { hora_inicio: string; hora_fin: string }[]; citas?: Cita[] }
+interface Medico { id: number; nombre: string; tipo?: string; medico_areas?: { area_id: number; areas: { nombre: string } | null }[]; horario?: { hora_inicio: string; hora_fin: string }[]; citas?: Cita[] }
 
 const sumaDias = (fecha: string, n: number) => {
   const d = new Date(`${fecha}T12:00:00Z`);
@@ -127,7 +127,7 @@ function VistaDia({ fecha, refresco, onError, onNueva, onCambio }:
               {datos.medicos.map((m) => (
                 <th key={m.id} className={m.tipo === "enfermera" ? "th-enf" : ""}>
                   {m.nombre}
-                  <small>{m.tipo === "enfermera" ? "Enfermería" : (m.medico_areas ?? []).map((x) => x.areas?.nombre).filter(Boolean).join(" · ")}</small>
+                  <small>{[m.tipo === "enfermera" ? "Enfermería" : null, ...(m.medico_areas ?? []).map((x) => x.areas?.nombre)].filter(Boolean).join(" · ")}</small>
                 </th>
               ))}
             </tr>
@@ -311,8 +311,11 @@ function NuevaCita({ fecha, medicos, preMedico, preHora, onCerrar }:
   const [notas, setNotas] = useState("");
   const [enfermeraId, setEnfermeraId] = useState<number | "">("");
   const [error, setError] = useState("");
-  const enfermeras = medicos.filter((m) => m.tipo === "enfermera");
   const tratSel = tratamientos.find((t) => t.id === tratId);
+  // Enfermeras de apoyo: si el tratamiento tiene área, solo las de ESA área
+  const enfermeras = medicos.filter((m) =>
+    m.tipo === "enfermera" &&
+    (!tratSel?.area_id || (m.medico_areas ?? []).some((x) => x.area_id === tratSel.area_id)));
 
   useEffect(() => { api<any[]>("tratamientos").then(setTratamientos).catch(() => {}); }, []);
   useEffect(() => {
