@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
  * Protegido con CRON_SECRET. Plazos configurables por variables de entorno:
  *  - RETENCION_CHAT_MESES     (def. 24): conversaciones de WhatsApp
  *  - RETENCION_LOGS_MESES     (def. 24): logs de auditoría
- *  - RETENCION_PAPELERA_DIAS  (def. 30): clientes en papelera → anonimización
- *  - RETENCION_ASISTENCIA_ANIOS (def. 5): SALVAGUARDA SANITARIA — un cliente
+ *  - RETENCION_PAPELERA_DIAS  (def. 30): pacientes en papelera → anonimización
+ *  - RETENCION_ASISTENCIA_ANIOS (def. 5): SALVAGUARDA SANITARIA — un paciente
  *    con asistencia (cita completada) dentro de este plazo NO se anonimiza
  *    (Ley 41/2002 art. 17: conservación mínima de la documentación clínica;
  *    RGPD art. 17.3: la supresión cede ante la obligación legal). Queda en
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   const logsMeses = parseInt(process.env.RETENCION_LOGS_MESES ?? "24", 10);
   const papeleraDias = parseInt(process.env.RETENCION_PAPELERA_DIAS ?? "30", 10);
 
-  const resultado = { chat_purgado: 0, logs_purgados: 0, clientes_anonimizados: 0, errores: [] as string[] };
+  const resultado = { chat_purgado: 0, logs_purgados: 0, pacientes_anonimizados: 0, errores: [] as string[] };
 
   // 1. Conversaciones antiguas
   try {
@@ -53,12 +53,12 @@ export async function GET(req: NextRequest) {
     resultado.logs_purgados = data?.length ?? 0;
   } catch (e: any) { resultado.errores.push(`logs: ${e.message}`); }
 
-  // 3. Clientes en papelera hace más de N días → anonimizar (irreversible)
+  // 3. Pacientes en papelera hace más de N días → anonimizar (irreversible)
   //    SALVO que tengan asistencia dentro del plazo legal de conservación.
   const asistenciaAnios = parseInt(process.env.RETENCION_ASISTENCIA_ANIOS ?? "5", 10);
   try {
     const { data: aAnonimizar, error: e1 } = await db()
-      .from("clientes")
+      .from("pacientes")
       .select("id")
       .not("deleted_at", "is", null)
       .lt("deleted_at", dias(papeleraDias))
@@ -69,23 +69,23 @@ export async function GET(req: NextRequest) {
       const { data: ultima } = await db()
         .from("citas")
         .select("inicio")
-        .eq("cliente_id", c.id)
+        .eq("paciente_id", c.id)
         .eq("estado", "completada")
         .order("inicio", { ascending: false })
         .limit(1)
         .maybeSingle();
       if (ultima && new Date(ultima.inicio).getTime() > Date.now() - asistenciaAnios * 365.25 * 86400_000) {
-        void auditar(null, "rgpd.anonimizacion_pospuesta", { tipo: "cliente", id: c.id },
-          { motivo: `asistencia dentro del plazo de conservación (${asistenciaAnios} años) — cliente bloqueado en papelera` });
+        void auditar(null, "rgpd.anonimizacion_pospuesta", { tipo: "paciente", id: c.id },
+          { motivo: `asistencia dentro del plazo de conservación (${asistenciaAnios} años) — paciente bloqueado en papelera` });
         continue;
       }
-      const { error: e2 } = await db().from("clientes").update({
+      const { error: e2 } = await db().from("pacientes").update({
         nombre: "[anonimizado]", apellidos: null, email: null,
         telefono_contacto: null, telefono: `anon-${c.id}`, activo: false,
       }).eq("id", c.id);
-      if (e2) { resultado.errores.push(`cliente ${c.id}: ${e2.message}`); continue; }
-      resultado.clientes_anonimizados++;
-      void auditar(null, "rgpd.anonimizacion_automatica", { tipo: "cliente", id: c.id }, { motivo: `papelera > ${papeleraDias} días` });
+      if (e2) { resultado.errores.push(`paciente ${c.id}: ${e2.message}`); continue; }
+      resultado.pacientes_anonimizados++;
+      void auditar(null, "rgpd.anonimizacion_automatica", { tipo: "paciente", id: c.id }, { motivo: `papelera > ${papeleraDias} días` });
     }
   } catch (e: any) { resultado.errores.push(`anonimizacion: ${e.message}`); }
 

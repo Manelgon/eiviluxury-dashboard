@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-// El cliente va tipado laxo: el esquema "eivi" no encaja en los genéricos
+// El cliente de Supabase va tipado laxo: el esquema "eivi" no encaja en los genéricos
 // por defecto de supabase-js y aquí no usamos tipos generados.
 type SupabaseClient = any;
 
@@ -13,7 +13,7 @@ function req(name: string): string {
 let _db: SupabaseClient | null = null;
 let _auth: SupabaseClient | null = null;
 
-/** Cliente con service_role sobre el esquema eivi (solo servidor). */
+/** Conexión Supabase con service_role sobre el esquema eivi (solo servidor). */
 export function db(): SupabaseClient {
   if (!_db) {
     _db = createClient(req("SUPABASE_URL"), req("SUPABASE_SERVICE_ROLE_KEY"), {
@@ -24,7 +24,7 @@ export function db(): SupabaseClient {
   return _db;
 }
 
-/** Cliente anónimo solo para login / verificación de tokens. */
+/** Conexión Supabase anónima solo para login / verificación de tokens. */
 export function authClient(): SupabaseClient {
   if (!_auth) {
     _auth = createClient(req("SUPABASE_URL"), req("SUPABASE_ANON_KEY"), {

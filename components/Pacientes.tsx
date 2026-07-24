@@ -2,20 +2,20 @@
 import { Fragment, useEffect, useState } from "react";
 import { api, fmtFechaHora } from "./api";
 
-export default function Clientes() {
-  const [sub, setSub] = useState<"clientes" | "escalados">("clientes");
+export default function Pacientes() {
+  const [sub, setSub] = useState<"pacientes" | "escalados">("pacientes");
   return (
     <>
       <div className="subtabs">
-        <button className={sub === "clientes" ? "on" : ""} onClick={() => setSub("clientes")}>Clientes</button>
+        <button className={sub === "pacientes" ? "on" : ""} onClick={() => setSub("pacientes")}>Pacientes</button>
         <button className={sub === "escalados" ? "on" : ""} onClick={() => setSub("escalados")}>Conversaciones escaladas</button>
       </div>
-      {sub === "clientes" ? <ListaClientes /> : <Escalados />}
+      {sub === "pacientes" ? <ListaPacientes /> : <Escalados />}
     </>
   );
 }
 
-function ListaClientes() {
+function ListaPacientes() {
   const [q, setQ] = useState("");
   const [lista, setLista] = useState<any[]>([]);
   const [ficha, setFicha] = useState<any | null>(null);
@@ -24,7 +24,7 @@ function ListaClientes() {
   const [papelera, setPapelera] = useState(false);
 
   const cargar = () =>
-    api<any[]>(`clientes?${papelera ? "papelera=1&" : ""}${q ? `q=${encodeURIComponent(q)}` : ""}`).then(setLista).catch(() => {});
+    api<any[]>(`pacientes?${papelera ? "papelera=1&" : ""}${q ? `q=${encodeURIComponent(q)}` : ""}`).then(setLista).catch(() => {});
   useEffect(() => {
     const t = setTimeout(cargar, 300);
     return () => clearTimeout(t);
@@ -33,7 +33,7 @@ function ListaClientes() {
   return (
     <>
       <div className="fila">
-        <input placeholder="Buscar por nombre, apellidos o teléfono…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 340 }} />
+        <input placeholder="Buscar paciente por nombre, apellidos o teléfono…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 340 }} />
         <div style={{ flex: 1 }} />
         <button className={`btn mini ${papelera ? "oro" : "suave"}`} onClick={() => { setPapelera(!papelera); setAbierto(null); }}>
           🗑 Papelera {papelera ? "(viendo eliminados)" : ""}
@@ -44,7 +44,7 @@ function ListaClientes() {
         <tbody>
           {lista.map((c) => (
             <Fragment key={c.id}>
-              <tr className={`fila-cliente ${abierto === c.id ? "abierta" : ""}`}
+              <tr className={`fila-paciente ${abierto === c.id ? "abierta" : ""}`}
                 onClick={() => setAbierto(abierto === c.id ? null : c.id)}>
                 <td>{[c.nombre, c.apellidos].filter(Boolean).join(" ") || <i style={{ color: "var(--muted)" }}>sin nombre</i>}</td>
                 <td>{c.telefono}{c.telefono_contacto ? ` · ☎ ${c.telefono_contacto}` : ""}</td>
@@ -55,21 +55,21 @@ function ListaClientes() {
               {abierto === c.id && (
                 <tr className="fila-acciones">
                   <td colSpan={5}>
-                    <div className="acciones-cliente">
+                    <div className="acciones-paciente">
                       {papelera ? (
                         <>
                           <PapeleraInfo deletedAt={c.deleted_at} />
                           <button className="btn mini oro" onClick={async () => {
-                            await api(`clientes/${c.id}`, { method: "PATCH", body: { restaurar: true } });
+                            await api(`pacientes/${c.id}`, { method: "PATCH", body: { restaurar: true } });
                             cargar();
-                          }}>♻️ Restaurar cliente</button>
+                          }}>♻️ Restaurar paciente</button>
                           <button className="btn mini suave" style={{ color: "var(--rojo)" }} onClick={async () => {
                             if (!confirm("⚠️ ANONIMIZAR es IRREVERSIBLE: se borran nombre, email y teléfonos para siempre (se conservan citas y consentimientos como registro). ¿Continuar?")) return;
-                            try { await api(`clientes/${c.id}`, { method: "PATCH", body: { anonimizar: true } }); cargar(); }
+                            try { await api(`pacientes/${c.id}`, { method: "PATCH", body: { anonimizar: true } }); cargar(); }
                             catch (e: any) {
                               if (String(e.message).includes("plazo legal") &&
                                 confirm(`${e.message}\n\n¿FORZAR la anonimización igualmente? (quedará auditado)`)) {
-                                try { await api(`clientes/${c.id}`, { method: "PATCH", body: { anonimizar: true, forzar: true } }); cargar(); }
+                                try { await api(`pacientes/${c.id}`, { method: "PATCH", body: { anonimizar: true, forzar: true } }); cargar(); }
                                 catch (e2: any) { alert(e2.message); }
                               } else if (!String(e.message).includes("plazo legal")) alert(e.message);
                             }
@@ -77,18 +77,18 @@ function ListaClientes() {
                         </>
                       ) : (
                         <>
-                          <button className="btn mini" onClick={() => api(`clientes/${c.id}`).then(setFicha)}>📋 Ver ficha</button>
+                          <button className="btn mini" onClick={() => api(`pacientes/${c.id}`).then(setFicha)}>📋 Ver ficha</button>
                           <button className="btn mini oro" onClick={() => setCitaPara(c)}>📅 Nueva cita</button>
                           <a className="btn mini suave" href={`https://wa.me/${c.telefono}`} target="_blank" rel="noopener"
                             onClick={(e) => e.stopPropagation()}>💬 WhatsApp</a>
                           <button className="btn mini suave" onClick={async () => {
-                            await api(`clientes/${c.id}`, { method: "PATCH", body: { activo: !c.activo } });
+                            await api(`pacientes/${c.id}`, { method: "PATCH", body: { activo: !c.activo } });
                             cargar();
                           }}>{c.activo ? "🚫 Desactivar" : "✅ Reactivar"}</button>
                           {!c.activo && (
                             <button className="btn mini suave" style={{ color: "var(--rojo)" }} onClick={async () => {
-                              if (!confirm("¿Enviar este cliente a la papelera? Es reversible desde 🗑 Papelera durante 30 días.")) return;
-                              await api(`clientes/${c.id}`, { method: "PATCH", body: { eliminar: true } });
+                              if (!confirm("¿Enviar este paciente a la papelera? Es reversible desde 🗑 Papelera durante 30 días.")) return;
+                              await api(`pacientes/${c.id}`, { method: "PATCH", body: { eliminar: true } });
                               cargar();
                             }}>🗑 Eliminar (a papelera)</button>
                           )}
@@ -104,13 +104,13 @@ function ListaClientes() {
           {lista.length === 0 && <tr><td colSpan={5} className="vacio">Sin resultados</td></tr>}
         </tbody>
       </table>
-      {ficha && <FichaCliente cliente={ficha} onCerrar={() => setFicha(null)} />}
-      {citaPara && <NuevaCitaCliente cliente={citaPara} onCerrar={() => setCitaPara(null)} />}
+      {ficha && <FichaPaciente paciente={ficha} onCerrar={() => setFicha(null)} />}
+      {citaPara && <NuevaCitaPaciente paciente={citaPara} onCerrar={() => setCitaPara(null)} />}
     </>
   );
 }
 
-function NuevaCitaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () => void }) {
+function NuevaCitaPaciente({ paciente, onCerrar }: { paciente: any; onCerrar: () => void }) {
   const [medicos, setMedicos] = useState<any[]>([]);
   const [tratamientos, setTratamientos] = useState<any[]>([]);
   const [medicoId, setMedicoId] = useState<number | null>(null);
@@ -130,7 +130,7 @@ function NuevaCitaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () =>
     try {
       await api("citas", {
         method: "POST",
-        body: { cliente_id: cliente.id, medico_id: medicoId, tratamiento_id: tratId, fecha: dia, hora, duracion_min: trat?.duracion_min ?? 30 },
+        body: { paciente_id: paciente.id, medico_id: medicoId, tratamiento_id: tratId, fecha: dia, hora, duracion_min: trat?.duracion_min ?? 30 },
       });
       onCerrar();
     } catch (e: any) { setError(e.message); }
@@ -139,7 +139,7 @@ function NuevaCitaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () =>
   return (
     <div className="modal-bg" onClick={onCerrar}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Nueva cita · {[cliente.nombre, cliente.apellidos].filter(Boolean).join(" ") || cliente.telefono}</h3>
+        <h3>Nueva cita · {[paciente.nombre, paciente.apellidos].filter(Boolean).join(" ") || paciente.telefono}</h3>
         <div className="campo"><label>Doctor/a o enfermería</label>
           <select value={medicoId ?? ""} onChange={(e) => setMedicoId(Number(e.target.value))}>
             {medicos.map((m) => <option key={m.id} value={m.id}>{m.nombre}{m.tipo === "enfermera" ? " (Enfermería)" : ""}</option>)}
@@ -165,13 +165,13 @@ function NuevaCitaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () =>
   );
 }
 
-function FichaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () => void }) {
-  const [f, setF] = useState({ nombre: cliente.nombre ?? "", apellidos: cliente.apellidos ?? "", email: cliente.email ?? "", telefono_contacto: cliente.telefono_contacto ?? "" });
+function FichaPaciente({ paciente, onCerrar }: { paciente: any; onCerrar: () => void }) {
+  const [f, setF] = useState({ nombre: paciente.nombre ?? "", apellidos: paciente.apellidos ?? "", email: paciente.email ?? "", telefono_contacto: paciente.telefono_contacto ?? "" });
   const [msg, setMsg] = useState("");
 
   async function guardar() {
     try {
-      await api(`clientes/${cliente.id}`, { method: "PATCH", body: { ...f, email: f.email || null, telefono_contacto: f.telefono_contacto || null } });
+      await api(`pacientes/${paciente.id}`, { method: "PATCH", body: { ...f, email: f.email || null, telefono_contacto: f.telefono_contacto || null } });
       setMsg("Guardado ✓");
     } catch (e: any) { setMsg(e.message); }
   }
@@ -179,7 +179,7 @@ function FichaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () => voi
   return (
     <div className="modal-bg" onClick={onCerrar}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Ficha · {cliente.telefono}</h3>
+        <h3>Ficha · {paciente.telefono}</h3>
         <div className="campo" style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}><label>Nombre</label><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} /></div>
           <div style={{ flex: 1 }}><label>Apellidos</label><input value={f.apellidos} onChange={(e) => setF({ ...f, apellidos: e.target.value })} /></div>
@@ -187,14 +187,14 @@ function FichaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () => voi
         <div className="campo"><label>Email</label><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
         <div className="campo"><label>Teléfono de contacto (si difiere del WhatsApp)</label><input value={f.telefono_contacto} onChange={(e) => setF({ ...f, telefono_contacto: e.target.value })} /></div>
         <p className="nota">
-          Consentimiento RGPD: {cliente.consentimiento_rgpd ? `aceptado el ${new Date(cliente.consentimiento_fecha).toLocaleString("es-ES")}` : "no aceptado"}
+          Consentimiento RGPD: {paciente.consentimiento_rgpd ? `aceptado el ${new Date(paciente.consentimiento_fecha).toLocaleString("es-ES")}` : "no aceptado"}
         </p>
-        <Consentimientos clienteId={cliente.id} />
+        <Consentimientos pacienteId={paciente.id} />
         <h3 style={{ marginTop: 16 }}>Citas</h3>
         <table className="t">
           <thead><tr><th>Cuándo</th><th>Médico</th><th>Tratamiento</th><th>Estado</th></tr></thead>
           <tbody>
-            {cliente.citas.map((c: any) => (
+            {paciente.citas.map((c: any) => (
               <tr key={c.id}>
                 <td>{fmtFechaHora(c.inicio)}</td>
                 <td>{c.medicos?.nombre ?? "—"}</td>
@@ -202,7 +202,7 @@ function FichaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () => voi
                 <td><span className={`chip ${c.estado}`}>{c.estado}</span></td>
               </tr>
             ))}
-            {cliente.citas.length === 0 && <tr><td colSpan={4} className="vacio">Sin citas</td></tr>}
+            {paciente.citas.length === 0 && <tr><td colSpan={4} className="vacio">Sin citas</td></tr>}
           </tbody>
         </table>
         <div className="fila" style={{ marginTop: 14, justifyContent: "flex-end" }}>
@@ -238,10 +238,10 @@ const TIPOS_CONSENT: Record<string, string> = {
   publicidad: "Publicidad y novedades",
 };
 
-function Consentimientos({ clienteId }: { clienteId: number }) {
+function Consentimientos({ pacienteId }: { pacienteId: number }) {
   const [lista, setLista] = useState<any[]>([]);
-  const cargar = () => api<any[]>(`consentimientos?cliente_id=${clienteId}`).then(setLista).catch(() => {});
-  useEffect(() => { cargar(); }, [clienteId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cargar = () => api<any[]>(`consentimientos?paciente_id=${pacienteId}`).then(setLista).catch(() => {});
+  useEffect(() => { cargar(); }, [pacienteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Estado vigente por tipo: el registro más reciente no revocado
   const vigente = (tipo: string) => lista.find((c) => c.tipo === tipo && !c.revocado_at);
@@ -269,7 +269,7 @@ function Consentimientos({ clienteId }: { clienteId: number }) {
               <>
                 <span className="chip">sin registro</span>
                 <button className="btn mini suave" onClick={async () => {
-                  await api("consentimientos", { method: "POST", body: { cliente_id: clienteId, tipo, aceptado: true, texto: `Consentimiento de ${etiqueta} otorgado verbalmente/en persona y registrado desde el panel` } });
+                  await api("consentimientos", { method: "POST", body: { paciente_id: pacienteId, tipo, aceptado: true, texto: `Consentimiento de ${etiqueta} otorgado verbalmente/en persona y registrado desde el panel` } });
                   cargar();
                 }}>Registrar ✓</button>
               </>

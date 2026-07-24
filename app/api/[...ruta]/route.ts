@@ -98,7 +98,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
 
       const { data: citas, error: e2 } = await db()
         .from("citas")
-        .select("id, medico_id, inicio, fin, estado, confirmada_cliente, notas, clientes(id, nombre, apellidos, telefono), tratamientos(nombre)")
+        .select("id, medico_id, inicio, fin, estado, confirmada_paciente, notas, pacientes(id, nombre, apellidos, telefono), tratamientos(nombre)")
         .gte("inicio", ini)
         .lte("inicio", fin)
         .neq("estado", "cancelada")
@@ -125,14 +125,14 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     case "citas": {
       if (metodo === "POST") {
         if (!puede(u, "gestion")) return err("Sin permiso", 403);
-        const { cliente_id, medico_id, tratamiento_id, fecha, hora, duracion_min, notas } = body;
-        if (!cliente_id || !medico_id || !fecha || !hora) return err("Faltan datos de la cita");
+        const { paciente_id, medico_id, tratamiento_id, fecha, hora, duracion_min, notas } = body;
+        if (!paciente_id || !medico_id || !fecha || !hora) return err("Faltan datos de la cita");
         const inicio = madridAUtc(fecha, hora);
         const fin = sumarMin(inicio, Number(duracion_min ?? 30));
         const { data, error } = await db()
           .from("citas")
           .insert({
-            cliente_id, medico_id,
+            paciente_id, medico_id,
             tratamiento_id: tratamiento_id ?? null,
             inicio: inicio.toISOString(), fin: fin.toISOString(),
             estado: "confirmada", notas: notas ?? null, creada_via: "panel",
@@ -140,7 +140,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           .select("id")
           .single();
         if (error) return error.code === "23P01" ? err("Ese hueco se solapa con otra cita del médico") : err(error.message, 500);
-        void auditar(u, "cita.crear", { tipo: "cita", id: data.id }, { cliente_id, medico_id, fecha, hora });
+        void auditar(u, "cita.crear", { tipo: "cita", id: data.id }, { paciente_id, medico_id, fecha, hora });
         return json({ ok: true, id: data.id });
       }
       if (metodo === "PATCH" && r1) {
@@ -155,13 +155,13 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       return err("Método no soportado", 405);
     }
 
-    // ---------- Clientes ----------
-    case "clientes": {
+    // ---------- Pacientes ----------
+    case "pacientes": {
       if (metodo === "GET" && !r1) {
         const busca = q.get("q")?.trim();
         const papelera = q.get("papelera") === "1";
         let cq = db()
-          .from("clientes")
+          .from("pacientes")
           .select("id, telefono, telefono_contacto, nombre, apellidos, email, consentimiento_rgpd, activo, created_at, deleted_at")
           .order("created_at", { ascending: false })
           .limit(100);
@@ -172,76 +172,76 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         return json(data);
       }
       if (metodo === "GET" && r1) {
-        const { data: cliente, error } = await db()
-          .from("clientes")
+        const { data: paciente, error } = await db()
+          .from("pacientes")
           .select("*")
           .eq("id", Number(r1))
           .maybeSingle();
-        if (error || !cliente) return err("Cliente no encontrado", 404);
+        if (error || !paciente) return err("Paciente no encontrado", 404);
         const { data: citas } = await db()
           .from("citas")
-          .select("id, inicio, estado, confirmada_cliente, medicos(nombre), tratamientos(nombre)")
-          .eq("cliente_id", cliente.id)
+          .select("id, inicio, estado, confirmada_paciente, medicos(nombre), tratamientos(nombre)")
+          .eq("paciente_id", paciente.id)
           .order("inicio", { ascending: false })
           .limit(50);
-        return json({ ...cliente, citas: citas ?? [] });
+        return json({ ...paciente, citas: citas ?? [] });
       }
       if (metodo === "PATCH" && r1) {
         if (!puede(u, "gestion")) return err("Sin permiso", 403);
-        // Estado actual del cliente (para la escalera desactivar → eliminar → anonimizar)
+        // Estado actual del paciente (para la escalera desactivar → eliminar → anonimizar)
         const { data: actual } = await db()
-          .from("clientes").select("activo, deleted_at").eq("id", Number(r1)).maybeSingle();
-        if (!actual) return err("Cliente no encontrado", 404);
+          .from("pacientes").select("activo, deleted_at").eq("id", Number(r1)).maybeSingle();
+        if (!actual) return err("Paciente no encontrado", 404);
         // Borrado suave y restauración
         if (body.eliminar === true) {
-          if (actual.activo) return err("Escalera de baja: primero hay que DESACTIVAR al cliente; solo entonces se puede enviar a la papelera.");
-          const { error } = await db().from("clientes").update({ deleted_at: new Date().toISOString() }).eq("id", Number(r1));
+          if (actual.activo) return err("Escalera de baja: primero hay que DESACTIVAR al paciente; solo entonces se puede enviar a la papelera.");
+          const { error } = await db().from("pacientes").update({ deleted_at: new Date().toISOString() }).eq("id", Number(r1));
           if (error) return err(error.message, 500);
-          void auditar(u, "cliente.eliminar", { tipo: "cliente", id: r1 }, { papelera_desde: new Date().toISOString() });
+          void auditar(u, "paciente.eliminar", { tipo: "paciente", id: r1 }, { papelera_desde: new Date().toISOString() });
           return json({ ok: true });
         }
         // Anonimización irreversible (derecho de supresión con obligación de conservar lo operativo)
         if (body.anonimizar === true) {
           if (!puede(u, "usuarios")) return err("Solo admin o dirección pueden anonimizar", 403);
-          if (!actual.deleted_at) return err("Escalera de baja: solo se puede anonimizar a un cliente que esté en la papelera.");
+          if (!actual.deleted_at) return err("Escalera de baja: solo se puede anonimizar a un paciente que esté en la papelera.");
           // Salvaguarda sanitaria (Ley 41/2002 art. 17): con asistencia reciente, no anonimizar
           const anios = parseInt(process.env.RETENCION_ASISTENCIA_ANIOS ?? "5", 10);
           const { data: ultima } = await db()
-            .from("citas").select("inicio").eq("cliente_id", Number(r1)).eq("estado", "completada")
+            .from("citas").select("inicio").eq("paciente_id", Number(r1)).eq("estado", "completada")
             .order("inicio", { ascending: false }).limit(1).maybeSingle();
           if (ultima && new Date(ultima.inicio).getTime() > Date.now() - anios * 365.25 * 86400_000 && body.forzar !== true) {
             return err(
-              `Este cliente tiene asistencia dentro del plazo legal de conservación (${anios} años, Ley 41/2002). Debe permanecer bloqueado en la papelera hasta que venza. Solo fuérzalo con el aval de vuestro asesor de protección de datos.`,
+              `Este paciente tiene asistencia dentro del plazo legal de conservación (${anios} años, Ley 41/2002). Debe permanecer bloqueado en la papelera hasta que venza. Solo fuérzalo con el aval de vuestro asesor de protección de datos.`,
               409
             );
           }
-          const { error } = await db().from("clientes").update({
+          const { error } = await db().from("pacientes").update({
             nombre: "[anonimizado]", apellidos: null, email: null,
             telefono_contacto: null, telefono: `anon-${r1}`,
             activo: false, deleted_at: new Date().toISOString(),
           }).eq("id", Number(r1));
           if (error) return err(error.message, 500);
-          void auditar(u, "cliente.anonimizar", { tipo: "cliente", id: r1 },
+          void auditar(u, "paciente.anonimizar", { tipo: "paciente", id: r1 },
             { forzado: body.forzar === true, en_papelera_desde: actual.deleted_at });
           return json({ ok: true });
         }
         if (body.restaurar === true) {
-          const { error } = await db().from("clientes").update({ deleted_at: null }).eq("id", Number(r1));
+          const { error } = await db().from("pacientes").update({ deleted_at: null }).eq("id", Number(r1));
           if (error) return err(error.message, 500);
-          void auditar(u, "cliente.restaurar", { tipo: "cliente", id: r1 }, { estaba_en_papelera_desde: actual.deleted_at });
+          void auditar(u, "paciente.restaurar", { tipo: "paciente", id: r1 }, { estaba_en_papelera_desde: actual.deleted_at });
           return json({ ok: true });
         }
         const permitidos = ["nombre", "apellidos", "email", "telefono_contacto", "idioma", "activo"];
         const cambios: Record<string, unknown> = {};
         for (const k of permitidos) if (k in body) cambios[k] = body[k];
-        const { error } = await db().from("clientes").update(cambios).eq("id", Number(r1));
+        const { error } = await db().from("pacientes").update(cambios).eq("id", Number(r1));
         if (error) return err(error.message, 500);
         // Log con VALORES (no solo nombres de campo). Activo tiene acción propia.
         if ("activo" in cambios && Object.keys(cambios).length === 1) {
-          void auditar(u, cambios.activo ? "cliente.reactivar" : "cliente.desactivar",
-            { tipo: "cliente", id: r1 }, { activo: cambios.activo });
+          void auditar(u, cambios.activo ? "paciente.reactivar" : "paciente.desactivar",
+            { tipo: "paciente", id: r1 }, { activo: cambios.activo });
         } else {
-          void auditar(u, "cliente.editar", { tipo: "cliente", id: r1 }, { cambios });
+          void auditar(u, "paciente.editar", { tipo: "paciente", id: r1 }, { cambios });
         }
         return json({ ok: true });
       }
@@ -251,24 +251,24 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     // ---------- Consentimientos (huella RGPD por finalidad) ----------
     case "consentimientos": {
       if (metodo === "GET") {
-        const clienteId = q.get("cliente_id");
-        if (!clienteId) return err("Falta cliente_id");
+        const pacienteId = q.get("paciente_id");
+        if (!pacienteId) return err("Falta paciente_id");
         const { data, error } = await db()
           .from("consentimientos")
           .select("id, tipo, aceptado, texto, canal, created_at, revocado_at")
-          .eq("cliente_id", Number(clienteId))
+          .eq("paciente_id", Number(pacienteId))
           .order("created_at", { ascending: false });
         return error ? err(error.message, 500) : json(data);
       }
       if (!puede(u, "gestion")) return err("Sin permiso", 403);
       if (metodo === "POST") {
-        const { cliente_id, tipo, aceptado, texto } = body;
-        if (!cliente_id || !tipo || typeof aceptado !== "boolean") return err("Faltan cliente_id, tipo o aceptado");
+        const { paciente_id, tipo, aceptado, texto } = body;
+        if (!paciente_id || !tipo || typeof aceptado !== "boolean") return err("Faltan paciente_id, tipo o aceptado");
         const { error } = await db().from("consentimientos").insert({
-          cliente_id, tipo, aceptado, texto: texto ?? null, canal: "panel",
+          paciente_id, tipo, aceptado, texto: texto ?? null, canal: "panel",
         });
         if (error) return err(error.message, 500);
-        void auditar(u, "consentimiento.registrar", { tipo: "cliente", id: cliente_id }, { tipo_consentimiento: tipo, aceptado });
+        void auditar(u, "consentimiento.registrar", { tipo: "paciente", id: paciente_id }, { tipo_consentimiento: tipo, aceptado });
         return json({ ok: true });
       }
       if (metodo === "PATCH" && r1) {
@@ -286,7 +286,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (metodo === "GET") {
         const { data, error } = await db()
           .from("derechos_arco")
-          .select("id, cliente_id, nombre, contacto, tipo_derecho, descripcion, canal, estado, notas_admin, resolucion_at, created_at")
+          .select("id, paciente_id, nombre, contacto, tipo_derecho, descripcion, canal, estado, notas_admin, resolucion_at, created_at")
           .order("created_at", { ascending: false })
           .limit(200);
         return error ? err(error.message, 500) : json(data);
@@ -523,9 +523,9 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       const hace8s = sumarDias(hoy, -56);
       const desdeISO = madridAUtc(hace8s, "00:00").toISOString();
 
-      const [{ data: citas }, { count: clientesTotal }, { count: escalPend }, { count: msgs7d }] = await Promise.all([
+      const [{ data: citas }, { count: pacientesTotal }, { count: escalPend }, { count: msgs7d }] = await Promise.all([
         db().from("citas").select("inicio, estado").gte("inicio", desdeISO),
-        db().from("clientes").select("id", { count: "exact", head: true }),
+        db().from("pacientes").select("id", { count: "exact", head: true }),
         db().from("escalados").select("id", { count: "exact", head: true }).eq("resuelto", false),
         db().from("historial_chat").select("id", { count: "exact", head: true })
           .gte("created_at", madridAUtc(sumarDias(hoy, -7), "00:00").toISOString()),
@@ -546,7 +546,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (c.estado === "completada") semanas[lunes].completadas++;
       }
       return json({
-        clientesTotal: clientesTotal ?? 0,
+        pacientesTotal: pacientesTotal ?? 0,
         escaladosPendientes: escalPend ?? 0,
         mensajes7d: msgs7d ?? 0,
         semanas: Object.entries(semanas).map(([semana, v]) => ({ semana, ...v })),

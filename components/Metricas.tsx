@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 
 interface Semana { semana: string; total: number; canceladas: number; no_show: number; completadas: number }
-interface Datos { clientesTotal: number; escaladosPendientes: number; mensajes7d: number; semanas: Semana[] }
+interface Datos { pacientesTotal: number; escaladosPendientes: number; mensajes7d: number; semanas: Semana[] }
 
 export default function Metricas() {
   const [d, setD] = useState<Datos | null>(null);
@@ -20,7 +20,7 @@ export default function Metricas() {
     <>
       <h2 className="seccion">Últimos 30 días de actividad</h2>
       <div className="kpis">
-        <div className="kpi"><div className="v">{d.clientesTotal}</div><div className="l">Clientes registrados</div></div>
+        <div className="kpi"><div className="v">{d.pacientesTotal}</div><div className="l">Pacientes registrados</div></div>
         <div className="kpi"><div className="v">{d.mensajes7d}</div><div className="l">Mensajes gestionados · 7 días</div></div>
         <div className="kpi"><div className="v">{d.escaladosPendientes}</div><div className="l">Escalados pendientes</div></div>
         <div className="kpi"><div className="v">{d.semanas.reduce((a, s) => a + s.total, 0)}</div><div className="l">Citas · 8 semanas</div></div>

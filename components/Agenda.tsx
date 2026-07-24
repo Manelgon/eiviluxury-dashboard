@@ -7,8 +7,8 @@ const DIAS_SEMANA = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
 interface Cita {
   id: number; medico_id: number; inicio: string; estado: string;
-  confirmada_cliente?: boolean; notas?: string | null;
-  clientes?: { id: number; nombre: string | null; apellidos: string | null; telefono: string } | null;
+  confirmada_paciente?: boolean; notas?: string | null;
+  pacientes?: { id: number; nombre: string | null; apellidos: string | null; telefono: string } | null;
   tratamientos?: { nombre: string } | null;
 }
 interface Medico { id: number; nombre: string; especialidad: string | null; tipo?: string; horario?: { hora_inicio: string; hora_fin: string }[]; citas?: Cita[] }
@@ -147,7 +147,7 @@ function VistaDia({ fecha, refresco, onError, onNueva, onCambio }:
                       {citas.map((c) => (
                         <div key={c.id} className={`bloque-cita ${c.estado}`}
                           onClick={(e) => { e.stopPropagation(); setSel(c); }}>
-                          <b>{fmtHora(c.inicio)}</b> {[c.clientes?.nombre, c.clientes?.apellidos].filter(Boolean).join(" ") || c.clientes?.telefono}
+                          <b>{fmtHora(c.inicio)}</b> {[c.pacientes?.nombre, c.pacientes?.apellidos].filter(Boolean).join(" ") || c.pacientes?.telefono}
                           {c.tratamientos && <small>{c.tratamientos.nombre}</small>}
                         </div>
                       ))}
@@ -164,8 +164,8 @@ function VistaDia({ fecha, refresco, onError, onNueva, onCambio }:
       {sel && (
         <div className="modal-bg" onClick={() => setSel(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{fmtHora(sel.inicio)} · {[sel.clientes?.nombre, sel.clientes?.apellidos].filter(Boolean).join(" ") || sel.clientes?.telefono}</h3>
-            <p className="nota">{sel.tratamientos?.nombre ?? "Sin tratamiento asignado"} · <span className={`chip ${sel.estado}`}>{sel.estado}{sel.confirmada_cliente ? " ✓" : ""}</span></p>
+            <h3>{fmtHora(sel.inicio)} · {[sel.pacientes?.nombre, sel.pacientes?.apellidos].filter(Boolean).join(" ") || sel.pacientes?.telefono}</h3>
+            <p className="nota">{sel.tratamientos?.nombre ?? "Sin tratamiento asignado"} · <span className={`chip ${sel.estado}`}>{sel.estado}{sel.confirmada_paciente ? " ✓" : ""}</span></p>
             {sel.notas && <p className="nota">Notas: {sel.notas}</p>}
             <div className="fila" style={{ justifyContent: "flex-end" }}>
               {["pendiente", "confirmada"].includes(sel.estado) && (
@@ -292,8 +292,8 @@ function VistaMes({ fecha, refresco, onIrDia }: { fecha: string; refresco: numbe
 function NuevaCita({ fecha, medicos, preMedico, preHora, onCerrar }:
   { fecha: string; medicos: Medico[]; preMedico?: number; preHora?: string; onCerrar: () => void }) {
   const [busca, setBusca] = useState("");
-  const [clientes, setClientes] = useState<any[]>([]);
-  const [clienteId, setClienteId] = useState<number | null>(null);
+  const [pacientes, setPacientes] = useState<any[]>([]);
+  const [pacienteId, setPacienteId] = useState<number | null>(null);
   const [medicoId, setMedicoId] = useState<number | null>(preMedico ?? medicos[0]?.id ?? null);
   const [tratamientos, setTratamientos] = useState<any[]>([]);
   const [tratId, setTratId] = useState<number | null>(null);
@@ -305,18 +305,18 @@ function NuevaCita({ fecha, medicos, preMedico, preHora, onCerrar }:
   useEffect(() => { api<any[]>("tratamientos").then(setTratamientos).catch(() => {}); }, []);
   useEffect(() => {
     const t = setTimeout(() => {
-      if (busca.trim().length >= 2) api<any[]>(`clientes?q=${encodeURIComponent(busca)}`).then(setClientes).catch(() => {});
+      if (busca.trim().length >= 2) api<any[]>(`pacientes?q=${encodeURIComponent(busca)}`).then(setPacientes).catch(() => {});
     }, 300);
     return () => clearTimeout(t);
   }, [busca]);
 
   async function guardar() {
-    if (!clienteId || !medicoId) { setError("Selecciona cliente y personal"); return; }
+    if (!pacienteId || !medicoId) { setError("Selecciona paciente y personal"); return; }
     const trat = tratamientos.find((t) => t.id === tratId);
     try {
       await api("citas", {
         method: "POST",
-        body: { cliente_id: clienteId, medico_id: medicoId, tratamiento_id: tratId, fecha: dia, hora, duracion_min: trat?.duracion_min ?? 30, notas: notas || null },
+        body: { paciente_id: pacienteId, medico_id: medicoId, tratamiento_id: tratId, fecha: dia, hora, duracion_min: trat?.duracion_min ?? 30, notas: notas || null },
       });
       onCerrar();
     } catch (e: any) { setError(e.message); }
@@ -327,13 +327,13 @@ function NuevaCita({ fecha, medicos, preMedico, preHora, onCerrar }:
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3>Nueva cita</h3>
         <div className="campo">
-          <label>Cliente (busca por nombre o teléfono)</label>
-          <input value={busca} onChange={(e) => { setBusca(e.target.value); setClienteId(null); }} placeholder="Ej. María / 34612..." autoFocus />
-          {clientes.length > 0 && !clienteId && (
+          <label>Paciente (busca por nombre o teléfono)</label>
+          <input value={busca} onChange={(e) => { setBusca(e.target.value); setPacienteId(null); }} placeholder="Ej. María / 34612..." autoFocus />
+          {pacientes.length > 0 && !pacienteId && (
             <div style={{ border: "1px solid var(--linea)", borderRadius: 8, marginTop: 4, maxHeight: 140, overflow: "auto" }}>
-              {clientes.map((c) => (
+              {pacientes.map((c) => (
                 <div key={c.id} style={{ padding: "7px 10px", cursor: "pointer" }}
-                  onClick={() => { setClienteId(c.id); setBusca(`${c.nombre ?? ""} ${c.apellidos ?? ""} (${c.telefono})`); }}>
+                  onClick={() => { setPacienteId(c.id); setBusca(`${c.nombre ?? ""} ${c.apellidos ?? ""} (${c.telefono})`); }}>
                   {c.nombre} {c.apellidos} · {c.telefono}
                 </div>
               ))}

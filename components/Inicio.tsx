@@ -122,7 +122,7 @@ function WKpis() {
     const citas = (d?.medicos ?? []).flatMap((m: any) => m.citas);
     return {
       total: citas.length,
-      confirmadas: citas.filter((c: any) => c.confirmada_cliente || c.estado === "confirmada").length,
+      confirmadas: citas.filter((c: any) => c.confirmada_paciente || c.estado === "confirmada").length,
       pendientes: citas.filter((c: any) => c.estado === "pendiente").length,
     };
   }, [d]);
@@ -152,7 +152,7 @@ function WCitasHoy() {
       {proximas.map((c: any) => (
         <div className="linea-cita" key={c.id}>
           <b>{fmtHora(c.inicio)}</b>
-          <span>{[c.clientes?.nombre, c.clientes?.apellidos].filter(Boolean).join(" ") || c.clientes?.telefono}</span>
+          <span>{[c.pacientes?.nombre, c.pacientes?.apellidos].filter(Boolean).join(" ") || c.pacientes?.telefono}</span>
           <em>{c.medico}</em>
         </div>
       ))}
@@ -173,7 +173,7 @@ function WEscalados() {
           <em>{fmtFechaHora(e.created_at)}</em>
         </div>
       ))}
-      {lista.length > 5 && <p className="nota">…y {lista.length - 5} más en Clientes → Escaladas</p>}
+      {lista.length > 5 && <p className="nota">…y {lista.length - 5} más en Pacientes → Escaladas</p>}
     </div>
   );
 }

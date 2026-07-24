@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api, setToken, getToken } from "@/components/api";
 import Inicio from "@/components/Inicio";
 import Agenda from "@/components/Agenda";
-import Clientes from "@/components/Clientes";
+import Pacientes from "@/components/Pacientes";
 import Config from "@/components/Config";
 import Metricas from "@/components/Metricas";
 import IdleTimeout from "@/components/IdleTimeout";
@@ -35,7 +35,7 @@ export default function Page() {
         <div className="tabs">
           {!esMedico && <button className={tab === "inicio" ? "on" : ""} onClick={() => setTab("inicio")}>Inicio</button>}
           <button className={tab === "agenda" ? "on" : ""} onClick={() => setTab("agenda")}>Agenda</button>
-          {!esMedico && <button className={tab === "clientes" ? "on" : ""} onClick={() => setTab("clientes")}>Clientes</button>}
+          {!esMedico && <button className={tab === "pacientes" ? "on" : ""} onClick={() => setTab("pacientes")}>Pacientes</button>}
           {!esMedico && <button className={tab === "metricas" ? "on" : ""} onClick={() => setTab("metricas")}>Métricas</button>}
         </div>
         <span className="quien">{me.nombre ?? ""} · {me.rol}</span>
@@ -73,7 +73,7 @@ export default function Page() {
       <div className="main">
         {tab === "inicio" && !esMedico && <Inicio />}
         {tab === "agenda" && <Agenda />}
-        {tab === "clientes" && <Clientes />}
+        {tab === "pacientes" && <Pacientes />}
         {tab === "config" && <Config sub={configSub} setSub={setConfigSub} rol={me.rol} />}
         {tab === "metricas" && <Metricas />}
       </div>

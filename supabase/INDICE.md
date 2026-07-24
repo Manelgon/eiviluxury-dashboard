@@ -8,5 +8,8 @@ Proyecto Supabase: `zohkencmpagiwxyljsiq` · Requiere haber aplicado antes los S
 | 7 | `patch-enfermera.sql` | Rol `enfermera` + campo `tipo` en medicos (columnas de enfermería en la agenda) | ✅ |
 | 8 | `patch-rgpd-fase1.sql` | RGPD fase 1: tabla `audit_logs`, tabla `consentimientos` granulares (personales/clínicos/recordatorios/publicidad), `deleted_at` en clientes | ✅ |
 | 9 | `patch-rgpd-fase2.sql` | RGPD fase 2: tabla `derechos_arco` (solicitudes de derechos desde web, WhatsApp y panel) | ✅ |
+| 10 | `patch-pacientes.sql` | Renombrado: tabla `clientes`→`pacientes`, columnas `cliente_id`→`paciente_id`, `confirmada_cliente`→`confirmada_paciente`, vista recreada. ⚠️ Requiere desplegar a la vez panel y bot renombrados | ⬜ pendiente |
+
+> Nota: los patches 1-9 ya aplicados conservan la nomenclatura antigua ("cliente") en su texto — NO se editan (regla del índice). El nombre actual de las tablas es el que fija el patch 10.
 
 > Regla: cada cambio de base de datos nuevo = un patch nuevo numerado aquí, nunca editar los ya aplicados. Los SQL van SIEMPRE a git (no llevan secretos); al .gitignore solo van .env y claves.

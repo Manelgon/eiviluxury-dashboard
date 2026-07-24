@@ -24,7 +24,7 @@ export default function Derechos() {
       <p className="nota">
         Solicitudes de derechos RGPD (acceso, rectificación, supresión…). Plazo legal de respuesta: <b>1 mes</b>.
         Formulario público para pacientes: <a href="/derechos" target="_blank" rel="noopener">{urlPublica}</a> — Alexia también las registra desde WhatsApp.
-        Para una supresión con obligación de conservar historial: usar <b>Anonimizar</b> en la papelera de clientes (solo admin/dirección).
+        Para una supresión con obligación de conservar historial: usar <b>Anonimizar</b> en la papelera de pacientes (solo admin/dirección).
       </p>
       <table className="t">
         <thead><tr><th>Fecha</th><th>Solicitante</th><th>Derecho</th><th>Detalle</th><th>Canal</th><th>Estado</th><th>Notas</th></tr></thead>
