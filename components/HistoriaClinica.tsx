@@ -67,6 +67,7 @@ export default function HistoriaClinica({ pacienteId, nombrePaciente }: { pacien
 
       {nueva && (
         <NuevaConsulta pacienteId={pacienteId} nombrePaciente={nombrePaciente} ambito={h.ambito}
+          problemas={h.diagnosticos} alergias={h.alergias}
           onCerrar={(guardada) => { setNueva(false); if (guardada) cargar(); }} />
       )}
     </div>
@@ -150,7 +151,7 @@ function Consulta({ c, constantes, diagnosticos, onCambio }: { c: any; constante
       </div>
       {abierta && (
         <div style={{ marginTop: 10, borderTop: "1px dashed var(--linea)", paddingTop: 10 }}>
-          {[["Exploración", c.exploracion], ["Plan", c.plan], ["Tratamiento aplicado", c.tratamiento], ["Notas", c.notas]]
+          {[["Exploración", c.exploracion], ["Juicio clínico", c.juicio_clinico], ["Plan", c.plan], ["Tratamiento aplicado", c.tratamiento], ["Notas", c.notas]]
             .filter(([, v]) => v).map(([t, v]) => (
               <p key={t as string} style={{ margin: "4px 0", fontSize: 13.5 }}><b style={{ color: "var(--muted)", fontSize: 11.5, textTransform: "uppercase", letterSpacing: 1 }}>{t}</b><br />{v as string}</p>
             ))}
@@ -195,7 +196,7 @@ function Consulta({ c, constantes, diagnosticos, onCambio }: { c: any; constante
               <p className="nota" style={{ margin: 0 }}>
                 <b>v{v.version_number}</b> · sustituida el {fmtFechaHora(v.created_at)} por {v.editado_por ?? "—"} · motivo: <i>{v.motivo_edicion}</i>
               </p>
-              <p style={{ margin: "4px 0 0", fontSize: 13 }}>{v.motivo}{v.exploracion ? ` — ${v.exploracion}` : ""}{v.plan ? ` — ${v.plan}` : ""}</p>
+              <p style={{ margin: "4px 0 0", fontSize: 13 }}>{v.motivo}{v.exploracion ? ` — ${v.exploracion}` : ""}{v.juicio_clinico ? ` — ${v.juicio_clinico}` : ""}{v.plan ? ` — ${v.plan}` : ""}</p>
             </div>
           ))}
         </div>
@@ -207,7 +208,7 @@ function Consulta({ c, constantes, diagnosticos, onCambio }: { c: any; constante
 
 /* ---------------- Editar consulta (exige motivo de edición) ---------------- */
 function EditarConsulta({ c, onCerrar }: { c: any; onCerrar: (ok: boolean) => void }) {
-  const [f, setF] = useState({ motivo: c.motivo ?? "", exploracion: c.exploracion ?? "", plan: c.plan ?? "", tratamiento: c.tratamiento ?? "", notas: c.notas ?? "" });
+  const [f, setF] = useState({ motivo: c.motivo ?? "", exploracion: c.exploracion ?? "", juicio_clinico: c.juicio_clinico ?? "", plan: c.plan ?? "", tratamiento: c.tratamiento ?? "", notas: c.notas ?? "" });
   const [motivoEdicion, setMotivoEdicion] = useState("");
   const [error, setError] = useState("");
 
@@ -222,9 +223,9 @@ function EditarConsulta({ c, onCerrar }: { c: any; onCerrar: (ok: boolean) => vo
       <div className="modal" style={{ width: "min(700px,96vw)" }} onClick={(e) => e.stopPropagation()}>
         <h3>Editar consulta · {fmtFechaHora(c.fecha)} (v{c.version_number})</h3>
         <p className="nota">La versión anterior queda archivada de forma inmutable (exigencia legal de la historia clínica).</p>
-        {(["motivo", "exploracion", "plan", "tratamiento", "notas"] as const).map((k) => (
+        {(["motivo", "exploracion", "juicio_clinico", "plan", "tratamiento", "notas"] as const).map((k) => (
           <div className="campo" key={k}>
-            <label style={{ textTransform: "capitalize" }}>{k === "tratamiento" ? "Tratamiento aplicado" : k}</label>
+            <label style={{ textTransform: "capitalize" }}>{k === "tratamiento" ? "Tratamiento aplicado" : k === "juicio_clinico" ? "Juicio clínico" : k}</label>
             <textarea rows={2} value={(f as any)[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
           </div>
         ))}
@@ -242,20 +243,21 @@ function EditarConsulta({ c, onCerrar }: { c: any; onCerrar: (ok: boolean) => vo
   );
 }
 
-/* ---------------- Nueva consulta ---------------- */
-function NuevaConsulta({ pacienteId, nombrePaciente, ambito, onCerrar }:
-  { pacienteId: number; nombrePaciente?: string; ambito: number[] | null; onCerrar: (guardada: boolean) => void }) {
+/* ---------------- Gestor de consulta (modelo SANIAN: MEAP + diagnósticos + constantes) ---------------- */
+function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], alergias = [], onCerrar }:
+  { pacienteId: number; nombrePaciente?: string; ambito: number[] | null; problemas?: any[]; alergias?: any[]; onCerrar: (guardada: boolean) => void }) {
   const [areas, setAreas] = useState<any[]>([]);
   const [medicos, setMedicos] = useState<any[]>([]);
   const [areaId, setAreaId] = useState<number | "">("");
   const [medicoId, setMedicoId] = useState<number | "">("");
-  const [f, setF] = useState({ motivo: "", exploracion: "", plan: "", tratamiento: "", notas: "" });
-  const [diags, setDiags] = useState<{ codigo: string; descripcion: string; estado: string }[]>([]);
+  const [f, setF] = useState({ motivo: "", exploracion: "", juicio_clinico: "", plan: "", tratamiento: "", notas: "" });
+  const [diags, setDiags] = useState<{ codigo: string; descripcion: string; estado: string; previo?: string }[]>([]);
   const [constCat, setConstCat] = useState<any[]>([]);
   const [constVals, setConstVals] = useState<Record<number, string>>({});
   const [firmar, setFirmar] = useState(false);
   const [error, setError] = useState("");
   const esMedico = ambito !== null;
+  const alergiasActivas = alergias.filter((a: any) => a.estado !== "descartada");
 
   useEffect(() => {
     api<any[]>("areas").then((a) => {
@@ -268,6 +270,19 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, onCerrar }:
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const medicosDelArea = medicos.filter((m: any) => (m.medico_areas ?? []).some((ma: any) => ma.area_id === areaId));
+
+  // Contexto de lista de problemas: al elegir un código, saber si el paciente ya lo tiene
+  function elegirDiagnostico(d: { codigo: string; descripcion: string }) {
+    if (diags.some((x) => x.codigo === d.codigo)) return;
+    const previo = problemas.find((p: any) => p.codigo === d.codigo && !p.fecha_resolucion);
+    const resuelto = problemas.find((p: any) => p.codigo === d.codigo && p.fecha_resolucion);
+    setDiags([...diags, {
+      ...d,
+      estado: previo?.estado === "confirmado" ? "confirmado" : "sospecha",
+      previo: previo ? `ya en su lista de problemas (${previo.estado}) — esta consulta lo actualizará`
+        : resuelto ? "estaba resuelto/descartado — se reactivará con el estado que elijas" : undefined,
+    }]);
+  }
 
   async function guardar() {
     if (!areaId || !f.motivo.trim()) { setError("El área y el motivo son obligatorios"); return; }
@@ -287,74 +302,130 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, onCerrar }:
     } catch (e: any) { setError(e.message); }
   }
 
+  const Tarjeta = ({ titulo, children }: { titulo: string; children: any }) => (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <p className="nota" style={{ marginTop: 0, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1.5, fontSize: 11.5 }}><b>{titulo}</b></p>
+      {children}
+    </div>
+  );
+
   return (
     <div className="modal-bg" onClick={() => onCerrar(false)}>
-      <div className="modal" style={{ width: "min(760px,96vw)", maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
-        <h3>Nueva consulta{nombrePaciente ? ` · ${nombrePaciente}` : ""}</h3>
-        <div className="campo" style={{ display: "flex", gap: 10 }}>
+      <div className="modal" style={{ width: "min(1150px,97vw)", maxHeight: "94vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        {/* Cabecera del gestor */}
+        <div className="fila" style={{ marginBottom: 4 }}>
           <div style={{ flex: 1 }}>
-            <label>Área</label>
-            <select value={areaId} onChange={(e) => { setAreaId(e.target.value ? Number(e.target.value) : ""); setMedicoId(""); }}>
-              <option value="">— Elegir área —</option>
-              {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-            </select>
+            <h3 style={{ margin: 0 }}>Registro clínico{nombrePaciente ? ` · ${nombrePaciente}` : ""}</h3>
+            <p className="nota" style={{ margin: "2px 0 0" }}>
+              {new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            </p>
           </div>
-          {!esMedico && (
-            <div style={{ flex: 1 }}>
-              <label>Médico</label>
-              <select value={medicoId} onChange={(e) => setMedicoId(e.target.value ? Number(e.target.value) : "")}>
-                <option value="">— Elegir médico —</option>
-                {medicosDelArea.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-              </select>
-            </div>
-          )}
+          <button className="btn oro" onClick={guardar}>💾 Guardar consulta</button>
         </div>
-        <div className="campo"><label>Motivo de consulta *</label>
-          <input value={f.motivo} onChange={(e) => setF({ ...f, motivo: e.target.value })} placeholder="Ej.: revisión post-tratamiento, primera valoración…" />
-        </div>
-        <div className="campo"><label>Exploración</label><textarea rows={2} value={f.exploracion} onChange={(e) => setF({ ...f, exploracion: e.target.value })} /></div>
-        <div className="campo"><label>Plan</label><textarea rows={2} value={f.plan} onChange={(e) => setF({ ...f, plan: e.target.value })} /></div>
-        <div className="campo"><label>Tratamiento aplicado</label><textarea rows={2} value={f.tratamiento} onChange={(e) => setF({ ...f, tratamiento: e.target.value })} /></div>
-        <div className="campo"><label>Notas</label><textarea rows={2} value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })} /></div>
-
-        <BuscadorCie10 onElegir={(d) => {
-          if (!diags.some((x) => x.codigo === d.codigo)) setDiags([...diags, { ...d, estado: "sospecha" }]);
-        }} />
-        {diags.map((d, i) => (
-          <div className="linea-cita" key={d.codigo}>
-            <b style={{ minWidth: 70 }}>{d.codigo}</b>
-            <span>{d.descripcion}</span>
-            <select value={d.estado} style={{ maxWidth: 140 }}
-              onChange={(e) => { const arr = [...diags]; arr[i] = { ...d, estado: e.target.value }; setDiags(arr); }}>
-              <option value="sospecha">Sospecha</option>
-              <option value="confirmado">Confirmado</option>
-              <option value="descartado">Descartado</option>
-            </select>
-            <button className="btn mini suave" onClick={() => setDiags(diags.filter((x) => x.codigo !== d.codigo))}>✕</button>
-          </div>
-        ))}
-
-        <div className="campo" style={{ marginTop: 10 }}>
-          <label>Constantes (opcional)</label>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(170px,1fr))", gap: 8 }}>
-            {constCat.map((k) => (
-              <div key={k.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 12, color: "var(--muted)", flex: 1 }}>{k.nombre}{k.unidad ? ` (${k.unidad})` : ""}</span>
-                <input type="number" step="any" style={{ width: 76 }} value={constVals[k.id] ?? ""}
-                  onChange={(e) => setConstVals({ ...constVals, [k.id]: e.target.value })} />
-              </div>
+        {alergiasActivas.length > 0 && (
+          <p style={{ margin: "6px 0 10px" }}>
+            {alergiasActivas.map((a: any) => (
+              <span key={a.id} className="chip cancelada" style={{ marginRight: 6, fontWeight: 600 }}>⚠ {a.alergias_catalogo?.descripcion}</span>
             ))}
-          </div>
-        </div>
+          </p>
+        )}
 
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, margin: "10px 0" }}>
-          <input type="checkbox" checked={firmar} onChange={(e) => setFirmar(e.target.checked)} style={{ width: "auto" }} />
-          Firmar directamente (si no, queda como borrador)
-        </label>
-        {error && <div className="error">{error}</div>}
-        <div className="fila" style={{ justifyContent: "flex-end" }}>
-          <button className="btn suave" onClick={() => onCerrar(false)}>Cancelar</button>
-          <button className="btn oro" onClick={guardar}>Guardar consulta</button>
+        <div style={{ display: "grid", gridTemplateColumns: "1.45fr 1fr", gap: 14, alignItems: "start" }}>
+          {/* ═══ IZQUIERDA: diagnósticos + MEAP ═══ */}
+          <div>
+            <Tarjeta titulo="Diagnósticos (CIE-10)">
+              <BuscadorCie10 onElegir={elegirDiagnostico} />
+              {diags.length === 0 && <p className="nota" style={{ margin: 0, textAlign: "center", letterSpacing: 1 }}>Añade diagnósticos desde el buscador</p>}
+              {diags.map((d, i) => (
+                <div className="linea-cita" key={d.codigo}>
+                  <b style={{ minWidth: 70 }}>{d.codigo}</b>
+                  <span>
+                    {d.descripcion}
+                    {d.previo && <><br /><em style={{ fontStyle: "normal", fontSize: 11.5, color: "var(--ambar)" }}>{d.previo}</em></>}
+                    {!d.previo && <><br /><em style={{ fontStyle: "normal", fontSize: 11.5, color: "var(--muted)" }}>nuevo para este paciente</em></>}
+                  </span>
+                  <select value={d.estado} style={{ maxWidth: 140 }}
+                    onChange={(e) => { const arr = [...diags]; arr[i] = { ...d, estado: e.target.value }; setDiags(arr); }}>
+                    <option value="sospecha">Sospecha</option>
+                    <option value="confirmado">Confirmado</option>
+                    <option value="descartado">Descartado/Resuelto</option>
+                  </select>
+                  <button className="btn mini suave" onClick={() => setDiags(diags.filter((x) => x.codigo !== d.codigo))}>✕</button>
+                </div>
+              ))}
+            </Tarjeta>
+
+            <Tarjeta titulo="Motivo de consulta *">
+              <textarea rows={2} value={f.motivo} onChange={(e) => setF({ ...f, motivo: e.target.value })}
+                placeholder="Describa el síntoma o motivo principal…" />
+            </Tarjeta>
+            <Tarjeta titulo="Exploración">
+              <textarea rows={3} value={f.exploracion} onChange={(e) => setF({ ...f, exploracion: e.target.value })}
+                placeholder="Hallazgos de la exploración física…" />
+            </Tarjeta>
+            <Tarjeta titulo="Juicio clínico">
+              <textarea rows={3} value={f.juicio_clinico} onChange={(e) => setF({ ...f, juicio_clinico: e.target.value })}
+                placeholder="Juicio clínico y diagnósticos diferenciales…" />
+            </Tarjeta>
+            <Tarjeta titulo="Plan">
+              <textarea rows={3} value={f.plan} onChange={(e) => setF({ ...f, plan: e.target.value })}
+                placeholder="Prescripciones, derivaciones y recomendaciones…" />
+            </Tarjeta>
+          </div>
+
+          {/* ═══ DERECHA: contexto + constantes ═══ */}
+          <div>
+            <Tarjeta titulo="Área y médico">
+              <div className="campo">
+                <label>Área</label>
+                <select value={areaId} onChange={(e) => { setAreaId(e.target.value ? Number(e.target.value) : ""); setMedicoId(""); }}>
+                  <option value="">— Elegir área —</option>
+                  {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                </select>
+              </div>
+              {!esMedico && (
+                <div className="campo" style={{ marginBottom: 0 }}>
+                  <label>Médico</label>
+                  <select value={medicoId} onChange={(e) => setMedicoId(e.target.value ? Number(e.target.value) : "")}>
+                    <option value="">— Elegir médico —</option>
+                    {medicosDelArea.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                  </select>
+                </div>
+              )}
+            </Tarjeta>
+
+            <Tarjeta titulo="Tratamiento aplicado">
+              <textarea rows={2} value={f.tratamiento} onChange={(e) => setF({ ...f, tratamiento: e.target.value })}
+                placeholder="Producto, unidades, zonas tratadas…" />
+            </Tarjeta>
+
+            <Tarjeta titulo="Constantes">
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {constCat.map((k) => (
+                  <div key={k.id}>
+                    <label style={{ fontSize: 11, color: "var(--muted)" }}>{k.nombre}{k.unidad ? ` (${k.unidad})` : ""}</label>
+                    <input type="number" step="any" value={constVals[k.id] ?? ""}
+                      onChange={(e) => setConstVals({ ...constVals, [k.id]: e.target.value })} />
+                  </div>
+                ))}
+              </div>
+            </Tarjeta>
+
+            <Tarjeta titulo="Notas internas">
+              <textarea rows={2} value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })}
+                placeholder="Notas no clínicas (seguimiento, avisos…)" />
+            </Tarjeta>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, margin: "4px 0 10px" }}>
+              <input type="checkbox" checked={firmar} onChange={(e) => setFirmar(e.target.checked)} style={{ width: "auto" }} />
+              ✒ Firmar directamente (si no, queda como borrador)
+            </label>
+            {error && <div className="error">{error}</div>}
+            <div className="fila" style={{ justifyContent: "flex-end", marginBottom: 0 }}>
+              <button className="btn suave" onClick={() => onCerrar(false)}>Cancelar</button>
+              <button className="btn oro" onClick={guardar}>Guardar consulta</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

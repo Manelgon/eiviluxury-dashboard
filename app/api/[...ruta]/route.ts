@@ -1072,7 +1072,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
 
       let consQ = db()
         .from("consultas")
-        .select("id, fecha, motivo, exploracion, plan, tratamiento, notas, estado, version_number, editada, editada_at, editado_por, area_id, medico_id, cita_id, medicos(nombre), areas(nombre)")
+        .select("id, fecha, motivo, exploracion, juicio_clinico, plan, tratamiento, notas, estado, version_number, editada, editada_at, editado_por, area_id, medico_id, cita_id, medicos(nombre), areas(nombre)")
         .eq("paciente_id", pacienteId).order("fecha", { ascending: false }).limit(200);
       let diagQ = db()
         .from("paciente_diagnosticos")
@@ -1134,7 +1134,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (!ambito.total && !ambito.areas.includes(consulta.area_id)) return err("Fuera de tu área", 403);
         if (!(await puedeVerPaciente(ambito, consulta.paciente_id))) return err("Este paciente no está asignado a ti", 403);
         const { data, error } = await db().from("consultas_versiones")
-          .select("version_number, motivo, exploracion, plan, tratamiento, notas, editado_por, motivo_edicion, created_at")
+          .select("version_number, motivo, exploracion, juicio_clinico, plan, tratamiento, notas, editado_por, motivo_edicion, created_at")
           .eq("consulta_id", Number(r1)).order("version_number", { ascending: false });
         if (error) return err(error.message, 500);
         void logAccesoHistoria(u, consulta.paciente_id, `consulta:${r1}:versiones`);
@@ -1142,7 +1142,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       }
 
       if (metodo === "POST") {
-        const { paciente_id, area_id, motivo, exploracion, plan, tratamiento, notas, cita_id, estado, diagnosticos, constantes } = body;
+        const { paciente_id, area_id, motivo, exploracion, juicio_clinico, plan, tratamiento, notas, cita_id, estado, diagnosticos, constantes } = body;
         if (!paciente_id || !area_id || !motivo?.trim()) return err("Faltan paciente, área o motivo");
         let medicoId = body.medico_id;
         if (!ambito.total) {
@@ -1154,7 +1154,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (!medicoId) return err("Falta el médico");
         const { data: creada, error } = await db().from("consultas").insert({
           paciente_id, medico_id: medicoId, area_id, cita_id: cita_id ?? null,
-          motivo: motivo.trim(), exploracion: exploracion ?? null, plan: plan ?? null,
+          motivo: motivo.trim(), exploracion: exploracion ?? null, juicio_clinico: juicio_clinico ?? null, plan: plan ?? null,
           tratamiento: tratamiento ?? null, notas: notas ?? null,
           estado: estado === "firmada" ? "firmada" : "borrador",
         }).select("id").single();
@@ -1192,7 +1192,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           if (actual.medico_id !== ambito.medicoId) return err("Solo puedes editar tus propias consultas", 403);
         }
         const cambios: Record<string, unknown> = {};
-        for (const k of ["motivo", "exploracion", "plan", "tratamiento", "notas"]) if (k in body) cambios[k] = body[k];
+        for (const k of ["motivo", "exploracion", "juicio_clinico", "plan", "tratamiento", "notas"]) if (k in body) cambios[k] = body[k];
         const cambiaContenido = Object.keys(cambios).length > 0;
         if (body.estado === "firmada") cambios.estado = "firmada";
         if (cambiaContenido) {
