@@ -10,6 +10,7 @@ Proyecto Supabase: `zohkencmpagiwxyljsiq` · Requiere haber aplicado antes los S
 | 9 | `patch-rgpd-fase2.sql` | RGPD fase 2: tabla `derechos_arco` (solicitudes de derechos desde web, WhatsApp y panel) | ✅ |
 | 10 | `patch-pacientes.sql` | Renombrado: tabla `clientes`→`pacientes`, columnas `cliente_id`→`paciente_id`, `confirmada_cliente`→`confirmada_paciente`, vista recreada. ⚠️ Requiere desplegar a la vez panel y bot renombrados | ✅ |
 | 11 | `patch-verificacion-identidad.sql` | Verificación de identidad en solicitudes ARCO (quién, cuándo, método) — obligatoria para resolver acceso/portabilidad | ⬜ pendiente |
+| 12 | `patch-documentos-rgpd.sql` | Documentos normativos editables (RAT, runbook de brechas, DPIA, subencargados, política IA) pre-rellenados para la clínica | ⬜ pendiente |
 
 > Nota: los patches 1-9 ya aplicados conservan la nomenclatura antigua ("cliente") en su texto — NO se editan (regla del índice). El nombre actual de las tablas es el que fija el patch 10.
 

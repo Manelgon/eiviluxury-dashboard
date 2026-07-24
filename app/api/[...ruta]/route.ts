@@ -359,6 +359,26 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       return err("Método no soportado", 405);
     }
 
+    // ---------- Documentos normativos RGPD ----------
+    case "documentos-rgpd": {
+      if (!puede(u, "config")) return err("Sin permiso", 403);
+      if (metodo === "GET") {
+        const { data, error } = await db().from("rgpd_documentos").select("*").order("id");
+        return error ? err(error.message, 500) : json(data);
+      }
+      if (metodo === "PATCH" && r1) {
+        const { contenido } = body;
+        if (!contenido || typeof contenido !== "object") return err("Falta el contenido");
+        const { error } = await db().from("rgpd_documentos").update({
+          contenido, actualizado_por: u.email, actualizado_at: new Date().toISOString(),
+        }).eq("id", r1);
+        if (error) return err(error.message, 500);
+        void auditar(u, "rgpd.documento.guardar", { tipo: "documento_rgpd", id: r1 }, { contenido });
+        return json({ ok: true });
+      }
+      return err("Método no soportado", 405);
+    }
+
     // ---------- Logs de auditoría (admin y dirección) ----------
     case "logs": {
       if (!puede(u, "usuarios")) return err("Sin permiso", 403);

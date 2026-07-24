@@ -54,6 +54,7 @@ export default function Page() {
                     { id: "bloqueos", t: "Vacaciones y bloqueos" },
                     { id: "areas", t: "Áreas de la clínica" },
                     { id: "derechos", t: "Derechos RGPD" },
+                    { id: "docs-rgpd", t: "Documentos RGPD" },
                     ...(me.rol === "admin" || me.rol === "direccion"
                       ? [{ id: "usuarios", t: "Usuarios y permisos" }, { id: "logs", t: "Logs de actividad" }]
                       : []),
