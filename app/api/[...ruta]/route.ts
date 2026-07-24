@@ -49,13 +49,32 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     }
 
     case "agenda": {
+      let medQ = db().from("medicos").select("id, nombre, especialidad, tipo").eq("activo", true).order("nombre");
+      // El médico ve su columna + las de enfermería; enfermera y demás roles ven todo
+      if (u.rol === "medico" && u.medico_id) medQ = medQ.or(`id.eq.${u.medico_id},tipo.eq.enfermera`);
+      const { data: medicos, error: e1 } = await medQ;
+      if (e1) return err(e1.message, 500);
+
+      // Modo rango (vistas semana/mes): ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+      const desde = q.get("desde"), hasta = q.get("hasta");
+      if (desde && hasta) {
+        const dias = (new Date(hasta).getTime() - new Date(desde).getTime()) / 86400000;
+        if (dias < 0 || dias > 45) return err("Rango no válido (máx. 45 días)");
+        const { data: citas, error: e2 } = await db()
+          .from("citas")
+          .select("id, medico_id, inicio, estado")
+          .gte("inicio", madridAUtc(desde, "00:00").toISOString())
+          .lte("inicio", madridAUtc(hasta, "23:59").toISOString())
+          .neq("estado", "cancelada")
+          .in("medico_id", (medicos ?? []).map((m: any) => m.id))
+          .order("inicio");
+        if (e2) return err(e2.message, 500);
+        return json({ medicos, citas: citas ?? [] });
+      }
+
       const fecha = q.get("fecha") ?? hoyMadrid();
       const ini = madridAUtc(fecha, "00:00").toISOString();
       const fin = madridAUtc(fecha, "23:59").toISOString();
-      let medQ = db().from("medicos").select("id, nombre, especialidad").eq("activo", true).order("nombre");
-      if (u.rol === "medico" && u.medico_id) medQ = medQ.eq("id", u.medico_id);
-      const { data: medicos, error: e1 } = await medQ;
-      if (e1) return err(e1.message, 500);
 
       const { data: citas, error: e2 } = await db()
         .from("citas")
@@ -63,6 +82,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         .gte("inicio", ini)
         .lte("inicio", fin)
         .neq("estado", "cancelada")
+        .in("medico_id", (medicos ?? []).map((m: any) => m.id))
         .order("inicio");
       if (e2) return err(e2.message, 500);
 

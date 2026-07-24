@@ -22,7 +22,7 @@ export default function Page() {
   if (cargando) return <div className="login-wrap"><div style={{ color: "#d4bc94" }}>Cargando…</div></div>;
   if (!me) return <Login onOk={(m) => setMe(m)} />;
 
-  const esMedico = me.rol === "medico";
+  const esMedico = me.rol === "medico" || me.rol === "enfermera";
   if (esMedico && tab === "inicio") setTab("agenda");
   return (
     <>

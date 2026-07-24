@@ -88,6 +88,40 @@ table.t tr:last-child td{border-bottom:none}
 .barra-lbl{font-size:10.5px;color:var(--muted)}
 .tip{position:absolute;background:var(--tinta);color:#fff;font-size:12px;padding:6px 10px;border-radius:8px;pointer-events:none;white-space:nowrap;transform:translate(-50%,-110%);z-index:10}
 
+/* Agenda: tabla horas × doctores */
+.tabla-scroll{overflow-x:auto;border:1px solid var(--linea);border-radius:14px;background:#fff}
+.tabla-agenda{width:100%;border-collapse:collapse;min-width:640px}
+.tabla-agenda th{background:#fdfbf7;border-bottom:1px solid var(--linea);border-right:1px solid var(--linea);padding:10px 8px;font-size:13px;text-align:center}
+.tabla-agenda th small{display:block;font-weight:400;font-size:11px;color:var(--muted)}
+.tabla-agenda th.th-enf{background:#f4efe6}
+.tabla-agenda th.th-hoy{background:#f2e9da}
+.th-hora{width:64px}
+.td-hora{width:64px;text-align:center;font-size:12px;color:var(--muted);border-right:1px solid var(--linea);border-bottom:1px solid #f1ece2;background:#fdfbf7}
+.tabla-agenda td{border-right:1px solid #f1ece2;border-bottom:1px solid #f1ece2;padding:2px 4px;vertical-align:top;min-width:120px}
+.td-libre{cursor:pointer}
+.td-libre:hover{background:#faf5eb}
+.td-cerrado{background:#f3f0ea;cursor:default}
+.td-medico{font-size:13px;font-weight:600;background:#fdfbf7;border-right:1px solid var(--linea);padding:10px 8px;white-space:nowrap}
+.td-centro{text-align:center;padding:8px 4px}
+.num-citas{font-size:16px}
+.horas-mini{display:block;font-size:10.5px;color:var(--muted)}
+.sin-citas{color:#cfc7b8}
+.bloque-cita{background:#f2e9da;border-left:3px solid var(--oro);border-radius:6px;padding:4px 8px;margin:2px 0;font-size:12.5px;cursor:pointer;line-height:1.35}
+.bloque-cita small{display:block;color:var(--muted);font-size:11px}
+.bloque-cita.pendiente{border-left-color:var(--ambar)}
+.bloque-cita.completada{opacity:.55}
+.bloque-cita.no_show{border-left-color:var(--rojo);opacity:.7}
+.bloque-cita:hover{filter:brightness(.97)}
+
+/* Vista mes */
+.mes-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.mes-cab{margin-bottom:6px;text-align:center;font-size:11.5px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+.mes-dia{background:#fff;border:1px solid var(--linea);border-radius:10px;min-height:74px;padding:8px;cursor:pointer;font-size:13px}
+.mes-dia:hover{background:#faf5eb}
+.mes-dia.otro-mes{opacity:.4}
+.mes-dia.es-hoy{outline:2px solid var(--oro);outline-offset:-2px}
+.mes-num{display:block;margin-top:6px;font-size:12px;color:var(--bronce)}
+
 /* Inicio: widgets */
 .inicio-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
 .widget{background:#fff;border:1px solid var(--linea);border-radius:14px;overflow:hidden}
