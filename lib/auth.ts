@@ -27,8 +27,9 @@ export async function usuarioDesdeRequest(req: Request): Promise<UsuarioPanel | 
   return (fila as UsuarioPanel) ?? null;
 }
 
-export function puede(u: UsuarioPanel, accion: "gestion" | "config" | "metricas"): boolean {
+export function puede(u: UsuarioPanel, accion: "gestion" | "config" | "metricas" | "usuarios"): boolean {
   if (u.rol === "admin" || u.rol === "direccion") return true;
+  if (accion === "usuarios") return false; // solo admin y dirección
   if (u.rol === "recepcion") return accion === "gestion" || accion === "config" || accion === "metricas";
   if (u.rol === "enfermera") return accion === "gestion"; // gestiona citas, sin config ni métricas
   // medico: solo lectura de su agenda (se filtra en la ruta)

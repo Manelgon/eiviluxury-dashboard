@@ -13,6 +13,8 @@ export default function Page() {
   const [me, setMe] = useState<Me | null>(null);
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState("inicio");
+  const [configSub, setConfigSub] = useState("tratamientos");
+  const [menuConf, setMenuConf] = useState(false);
 
   useEffect(() => {
     if (!getToken()) { setCargando(false); return; }
@@ -32,17 +34,42 @@ export default function Page() {
           {!esMedico && <button className={tab === "inicio" ? "on" : ""} onClick={() => setTab("inicio")}>Inicio</button>}
           <button className={tab === "agenda" ? "on" : ""} onClick={() => setTab("agenda")}>Agenda</button>
           {!esMedico && <button className={tab === "clientes" ? "on" : ""} onClick={() => setTab("clientes")}>Clientes</button>}
-          {!esMedico && <button className={tab === "config" ? "on" : ""} onClick={() => setTab("config")}>Configuración</button>}
           {!esMedico && <button className={tab === "metricas" ? "on" : ""} onClick={() => setTab("metricas")}>Métricas</button>}
         </div>
         <span className="quien">{me.nombre ?? ""} · {me.rol}</span>
+        {!esMedico && (
+          <div className="tuerca-wrap">
+            <button className={`tuerca ${tab === "config" ? "on" : ""}`} title="Configuración"
+              onClick={() => setMenuConf(!menuConf)}>⚙</button>
+            {menuConf && (
+              <>
+                <div className="menu-fondo" onClick={() => setMenuConf(false)} />
+                <div className="menu-conf">
+                  {[
+                    { id: "tratamientos", t: "Tratamientos y precios" },
+                    { id: "faq", t: "FAQ del bot" },
+                    { id: "horarios", t: "Horarios" },
+                    { id: "bloqueos", t: "Vacaciones y bloqueos" },
+                    { id: "areas", t: "Áreas de la clínica" },
+                    ...(me.rol === "admin" || me.rol === "direccion" ? [{ id: "usuarios", t: "Usuarios y permisos" }] : []),
+                  ].map((o) => (
+                    <button key={o.id} className={tab === "config" && configSub === o.id ? "on" : ""}
+                      onClick={() => { setTab("config"); setConfigSub(o.id); setMenuConf(false); }}>
+                      {o.t}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
         <button className="salir" onClick={() => { setToken(null); setMe(null); }}>Salir</button>
       </div>
       <div className="main">
         {tab === "inicio" && !esMedico && <Inicio />}
         {tab === "agenda" && <Agenda />}
         {tab === "clientes" && <Clientes />}
-        {tab === "config" && <Config />}
+        {tab === "config" && <Config sub={configSub} setSub={setConfigSub} rol={me.rol} />}
         {tab === "metricas" && <Metricas />}
       </div>
     </>

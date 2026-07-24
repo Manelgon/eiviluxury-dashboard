@@ -28,6 +28,14 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--oro-claro)}
 .tabs button.on{color:#fff;border-bottom-color:var(--oro)}
 .quien{font-size:12px;color:#b8b0a1;white-space:nowrap}
 .salir{background:none;border:1px solid #57503f;color:var(--oro-claro);border-radius:8px;padding:6px 12px;font-size:12px}
+.tuerca-wrap{position:relative}
+.tuerca{background:none;border:none;color:#b8b0a1;font-size:20px;padding:6px 8px;line-height:1;border-radius:8px}
+.tuerca:hover,.tuerca.on{color:#fff;background:#3a352d}
+.menu-fondo{position:fixed;inset:0;z-index:98}
+.menu-conf{position:absolute;right:0;top:44px;background:#fff;border:1px solid var(--linea);border-radius:12px;box-shadow:0 8px 28px rgba(28,26,23,.18);min-width:220px;padding:6px;z-index:99}
+.menu-conf button{display:block;width:100%;text-align:left;background:none;border:none;padding:9px 12px;border-radius:8px;font-size:13.5px;color:var(--tinta)}
+.menu-conf button:hover{background:#faf5eb}
+.menu-conf button.on{background:#f2e9da;color:var(--bronce);font-weight:600}
 
 .main{width:100%;max-width:1900px;margin:0 auto;padding:22px 28px 60px}
 h2.seccion{font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--oro);margin:4px 0 14px}

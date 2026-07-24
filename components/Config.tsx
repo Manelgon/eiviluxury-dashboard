@@ -4,8 +4,8 @@ import { api } from "./api";
 
 const DIAS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
-export default function Config() {
-  const [sub, setSub] = useState<"tratamientos" | "faq" | "horarios" | "bloqueos">("tratamientos");
+export default function Config({ sub, setSub, rol }: { sub: string; setSub: (s: string) => void; rol: string }) {
+  const puedeUsuarios = rol === "admin" || rol === "direccion";
   return (
     <>
       <div className="subtabs">
@@ -13,11 +13,134 @@ export default function Config() {
         <button className={sub === "faq" ? "on" : ""} onClick={() => setSub("faq")}>FAQ del bot</button>
         <button className={sub === "horarios" ? "on" : ""} onClick={() => setSub("horarios")}>Horarios</button>
         <button className={sub === "bloqueos" ? "on" : ""} onClick={() => setSub("bloqueos")}>Vacaciones y bloqueos</button>
+        <button className={sub === "areas" ? "on" : ""} onClick={() => setSub("areas")}>Áreas</button>
+        {puedeUsuarios && <button className={sub === "usuarios" ? "on" : ""} onClick={() => setSub("usuarios")}>Usuarios y permisos</button>}
       </div>
       {sub === "tratamientos" && <Tratamientos />}
       {sub === "faq" && <Faq />}
       {sub === "horarios" && <Horarios />}
       {sub === "bloqueos" && <Bloqueos />}
+      {sub === "areas" && <Areas />}
+      {sub === "usuarios" && puedeUsuarios && <Usuarios rolActual={rol} />}
+    </>
+  );
+}
+
+function Areas() {
+  const [lista, setLista] = useState<any[]>([]);
+  const [nombre, setNombre] = useState("");
+  const [descripcion, setDescripcion] = useState("");
+  const cargar = () => api<any[]>("areas").then(setLista).catch(() => {});
+  useEffect(() => { cargar(); }, []);
+
+  return (
+    <>
+      <p className="nota">Las áreas organizan tratamientos y médicos. Desactivar en vez de borrar (los tratamientos vinculados se conservan).</p>
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="fila" style={{ marginBottom: 0 }}>
+          <input placeholder="Nombre del área nueva" value={nombre} onChange={(e) => setNombre(e.target.value)} style={{ width: 240 }} />
+          <input placeholder="Descripción (opcional)" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} style={{ flex: 1, minWidth: 200 }} />
+          <button className="btn oro" onClick={async () => {
+            if (!nombre.trim()) return;
+            try { await api("areas", { method: "POST", body: { nombre: nombre.trim(), descripcion: descripcion.trim() || null } }); setNombre(""); setDescripcion(""); cargar(); }
+            catch (e: any) { alert(e.message); }
+          }}>+ Crear área</button>
+        </div>
+      </div>
+      <table className="t">
+        <thead><tr><th>Área</th><th>Descripción</th><th>Activa</th></tr></thead>
+        <tbody>
+          {lista.map((a) => (
+            <tr key={a.id} style={{ opacity: a.activo ? 1 : 0.5 }}>
+              <td style={{ width: 260 }}>
+                <input defaultValue={a.nombre} onBlur={(e) => { if (e.target.value.trim() && e.target.value !== a.nombre) api(`areas/${a.id}`, { method: "PATCH", body: { nombre: e.target.value.trim() } }).catch((er: any) => alert(er.message)); }} />
+              </td>
+              <td><input defaultValue={a.descripcion ?? ""} onBlur={(e) => api(`areas/${a.id}`, { method: "PATCH", body: { descripcion: e.target.value || null } })} /></td>
+              <td><input type="checkbox" defaultChecked={a.activo} onChange={(e) => api(`areas/${a.id}`, { method: "PATCH", body: { activo: e.target.checked } })} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+function Usuarios({ rolActual }: { rolActual: string }) {
+  const [lista, setLista] = useState<any[]>([]);
+  const [medicos, setMedicos] = useState<any[]>([]);
+  const [nuevo, setNuevo] = useState<any | null>(null);
+  const ROLES = ["direccion", "recepcion", "enfermera", "medico", ...(rolActual === "admin" ? ["admin"] : [])];
+  const cargar = () => api<any[]>("usuarios").then(setLista).catch((e) => alert(e.message));
+  useEffect(() => { cargar(); api<any[]>("medicos").then(setMedicos).catch(() => {}); }, []);
+
+  return (
+    <>
+      <p className="nota">Los usuarios se dan de alta al momento: pueden entrar con su email y contraseña nada más crearlos. Roles: admin (técnico) · direccion (todo) · recepcion (gestión) · enfermera (agenda completa) · medico (solo su agenda, requiere vincular su columna).</p>
+      <div className="fila">
+        <button className="btn oro" onClick={() => setNuevo({ email: "", password: "", nombre: "", rol: "recepcion", medico_id: null })}>+ Crear usuario</button>
+      </div>
+      <table className="t">
+        <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Vinculado a</th><th>Activo</th><th></th></tr></thead>
+        <tbody>
+          {lista.map((us) => (
+            <tr key={us.user_id} style={{ opacity: us.activo ? 1 : 0.5 }}>
+              <td>{us.email}</td>
+              <td>{us.nombre ?? "—"}</td>
+              <td style={{ width: 140 }}>
+                <select defaultValue={us.rol} onChange={(e) => api(`usuarios/${us.user_id}`, { method: "PATCH", body: { rol: e.target.value } }).catch((er: any) => { alert(er.message); cargar(); })}>
+                  {[...new Set([us.rol, ...ROLES])].map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </td>
+              <td style={{ width: 180 }}>
+                {["medico", "enfermera"].includes(us.rol) ? (
+                  <select defaultValue={us.medico_id ?? ""} onChange={(e) => api(`usuarios/${us.user_id}`, { method: "PATCH", body: { medico_id: e.target.value ? Number(e.target.value) : null } })}>
+                    <option value="">— sin vincular —</option>
+                    {medicos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                  </select>
+                ) : "—"}
+              </td>
+              <td><input type="checkbox" defaultChecked={us.activo} onChange={(e) => api(`usuarios/${us.user_id}`, { method: "PATCH", body: { activo: e.target.checked } }).catch((er: any) => { alert(er.message); cargar(); })} /></td>
+              <td>
+                <button className="btn mini suave" onClick={() => {
+                  const p = prompt(`Nueva contraseña para ${us.email} (mín. 8 caracteres):`);
+                  if (p) api(`usuarios/${us.user_id}`, { method: "PATCH", body: { password: p } }).then(() => alert("Contraseña cambiada")).catch((er: any) => alert(er.message));
+                }}>Contraseña</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {nuevo && (
+        <div className="modal-bg" onClick={() => setNuevo(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Crear usuario del panel</h3>
+            <div className="campo"><label>Email</label><input type="email" value={nuevo.email} onChange={(e) => setNuevo({ ...nuevo, email: e.target.value })} /></div>
+            <div className="campo"><label>Contraseña (mín. 8 caracteres)</label><input type="text" value={nuevo.password} onChange={(e) => setNuevo({ ...nuevo, password: e.target.value })} /></div>
+            <div className="campo"><label>Nombre</label><input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} /></div>
+            <div className="campo"><label>Rol</label>
+              <select value={nuevo.rol} onChange={(e) => setNuevo({ ...nuevo, rol: e.target.value })}>
+                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            {["medico", "enfermera"].includes(nuevo.rol) && (
+              <div className="campo"><label>Vincular a su columna de agenda</label>
+                <select value={nuevo.medico_id ?? ""} onChange={(e) => setNuevo({ ...nuevo, medico_id: e.target.value ? Number(e.target.value) : null })}>
+                  <option value="">— elegir —</option>
+                  {medicos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="fila" style={{ justifyContent: "flex-end" }}>
+              <button className="btn suave" onClick={() => setNuevo(null)}>Cerrar</button>
+              <button className="btn oro" onClick={async () => {
+                try { await api("usuarios", { method: "POST", body: nuevo }); setNuevo(null); cargar(); }
+                catch (e: any) { alert(e.message); }
+              }}>Crear y dar de alta</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -27,7 +150,7 @@ function Tratamientos() {
   const [areas, setAreas] = useState<any[]>([]);
   const [nuevo, setNuevo] = useState<any | null>(null);
   const cargar = () => api<any[]>("tratamientos").then(setLista).catch(() => {});
-  useEffect(() => { cargar(); api<any[]>("areas").then(setAreas).catch(() => {}); }, []);
+  useEffect(() => { cargar(); api<any[]>("areas").then((a) => setAreas(a.filter((x: any) => x.activo))).catch(() => {}); }, []);
 
   async function actualizar(id: number, campos: any) {
     try { await api(`tratamientos/${id}`, { method: "PATCH", body: campos }); cargar(); }

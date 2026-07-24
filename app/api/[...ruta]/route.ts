@@ -216,8 +216,69 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     }
 
     case "areas": {
-      const { data, error } = await db().from("areas").select("id, nombre").eq("activo", true).order("nombre");
-      return error ? err(error.message, 500) : json(data);
+      if (metodo === "GET") {
+        const { data, error } = await db().from("areas").select("id, nombre, descripcion, activo").order("nombre");
+        return error ? err(error.message, 500) : json(data);
+      }
+      if (!puede(u, "config")) return err("Sin permiso", 403);
+      if (metodo === "POST") {
+        if (!body.nombre) return err("Falta el nombre del área");
+        const { error } = await db().from("areas").insert({ nombre: body.nombre, descripcion: body.descripcion ?? null });
+        return error ? err(error.message, 500) : json({ ok: true });
+      }
+      if (metodo === "PATCH" && r1) {
+        const cambios: Record<string, unknown> = {};
+        for (const k of ["nombre", "descripcion", "activo"]) if (k in body) cambios[k] = body[k];
+        const { error } = await db().from("areas").update(cambios).eq("id", Number(r1));
+        return error ? err(error.message, 500) : json({ ok: true });
+      }
+      return err("Método no soportado", 405);
+    }
+
+    // ---------- Usuarios del panel (solo admin y dirección) ----------
+    case "usuarios": {
+      if (!puede(u, "usuarios")) return err("Sin permiso", 403);
+      if (metodo === "GET") {
+        const { data, error } = await db()
+          .from("usuarios_panel")
+          .select("user_id, email, nombre, rol, medico_id, activo, created_at, medicos(nombre)")
+          .order("created_at");
+        return error ? err(error.message, 500) : json(data);
+      }
+      if (metodo === "POST") {
+        const { email, password, nombre, rol, medico_id } = body;
+        if (!email || !password || !rol) return err("Faltan email, contraseña o rol");
+        if (String(password).length < 8) return err("La contraseña debe tener al menos 8 caracteres");
+        if (!["admin", "direccion", "recepcion", "enfermera", "medico"].includes(rol)) return err("Rol no válido");
+        // 1. Crear el usuario de acceso (queda dado de alta directamente, sin email de confirmación)
+        const { data: nuevo, error: eA } = await db().auth.admin.createUser({
+          email, password, email_confirm: true,
+        });
+        if (eA) return err(`No se pudo crear el acceso: ${eA.message}`, 500);
+        // 2. Su fila de rol en el panel
+        const { error: eI } = await db().from("usuarios_panel").insert({
+          user_id: nuevo.user.id, email, nombre: nombre ?? null, rol, medico_id: medico_id ?? null,
+        });
+        if (eI) return err(eI.message, 500);
+        return json({ ok: true });
+      }
+      if (metodo === "PATCH" && r1) {
+        const cambios: Record<string, unknown> = {};
+        for (const k of ["nombre", "rol", "medico_id", "activo"]) if (k in body) cambios[k] = body[k];
+        if (u.rol !== "admin" && cambios.rol === "admin") return err("Solo un admin puede conceder el rol admin", 403);
+        if (r1 === u.user_id && cambios.activo === false) return err("No puedes desactivarte a ti mismo");
+        if (Object.keys(cambios).length > 0) {
+          const { error } = await db().from("usuarios_panel").update(cambios).eq("user_id", r1);
+          if (error) return err(error.message, 500);
+        }
+        if (body.password) {
+          if (String(body.password).length < 8) return err("La contraseña debe tener al menos 8 caracteres");
+          const { error } = await db().auth.admin.updateUserById(r1, { password: body.password });
+          if (error) return err(error.message, 500);
+        }
+        return json({ ok: true });
+      }
+      return err("Método no soportado", 405);
     }
 
     case "faq": {
