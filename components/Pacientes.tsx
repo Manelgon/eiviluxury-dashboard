@@ -126,6 +126,7 @@ function ListaPacientes({ rol }: { rol?: string }) {
 function NuevoPaciente({ onCerrar }: { onCerrar: (ok: boolean) => void }) {
   const [f, setF] = useState({ telefono: "", nombre: "", apellidos: "", email: "", telefono_contacto: "", dni: "", fecha_nacimiento: "", direccion: "", sexo: "" });
   const [consent, setConsent] = useState(false);
+  const [consentClinicos, setConsentClinicos] = useState(false);
   const [publicidad, setPublicidad] = useState<null | boolean>(null);
   const [error, setError] = useState("");
 
@@ -134,7 +135,7 @@ function NuevoPaciente({ onCerrar }: { onCerrar: (ok: boolean) => void }) {
     try {
       const r = await api<{ alta_completa: boolean }>("pacientes", {
         method: "POST",
-        body: { ...f, sexo: f.sexo || null, fecha_nacimiento: f.fecha_nacimiento || null, consentimiento: consent, ...(publicidad !== null ? { acepta_publicidad: publicidad } : {}) },
+        body: { ...f, sexo: f.sexo || null, fecha_nacimiento: f.fecha_nacimiento || null, consentimiento: consent, consentimiento_clinicos: consentClinicos, ...(publicidad !== null ? { acepta_publicidad: publicidad } : {}) },
       });
       alert(r.alta_completa ? "Paciente creado con alta completa ✓" : "Paciente creado. Le faltan datos: quedará como ⏳ alta pendiente.");
       onCerrar(true);
@@ -172,13 +173,17 @@ function NuevoPaciente({ onCerrar }: { onCerrar: (ok: boolean) => void }) {
           El paciente ha dado EN PERSONA su consentimiento al tratamiento de datos personales *
         </label>
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 6 }}>
+          <input type="checkbox" style={{ width: "auto" }} checked={consentClinicos} onChange={(e) => setConsentClinicos(e.target.checked)} />
+          Y al tratamiento de sus datos clínicos y de salud (historia clínica) *
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 6 }}>
           <input type="checkbox" style={{ width: "auto" }} checked={publicidad === true} onChange={(e) => setPublicidad(e.target.checked ? true : null)} />
           Acepta además recibir novedades y promociones (opcional)
         </label>
         {error && <div className="error">{error}</div>}
         <div className="fila" style={{ justifyContent: "flex-end" }}>
           <button className="btn suave" onClick={() => onCerrar(false)}>Cerrar</button>
-          <button className="btn oro" disabled={!consent || !f.telefono.trim() || !f.nombre.trim()} onClick={crear}>Crear paciente</button>
+          <button className="btn oro" disabled={!consent || !consentClinicos || !f.telefono.trim() || !f.nombre.trim()} onClick={crear}>Crear paciente</button>
         </div>
       </div>
     </div>

@@ -396,6 +396,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         const { telefono, nombre, apellidos, email, telefono_contacto, dni, fecha_nacimiento, direccion, sexo, acepta_publicidad } = body;
         if (!telefono?.trim() || !nombre?.trim()) return err("Faltan el teléfono y el nombre");
         if (body.consentimiento !== true) return err("Sin el consentimiento de datos personales (dado en persona) no se puede crear al paciente");
+        if (body.consentimiento_clinicos !== true) return err("En el alta presencial también es necesario el consentimiento del tratamiento de datos clínicos (historia clínica)");
         const tel = String(telefono).replace(/\D/g, "");
         // Alta completa si recepción ya tiene lo esencial de la ficha
         const alta_completa = Boolean(nombre?.trim() && apellidos?.trim() && dni?.trim() && fecha_nacimiento);
@@ -415,6 +416,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         // Huella RGPD granular (canal panel: consentimiento presencial)
         const consentimientos = [
           { paciente_id: nuevoP.id, tipo: "datos_personales", aceptado: true, canal: "panel", texto: "Consentimiento del tratamiento de datos personales otorgado en persona en la clínica y registrado desde el panel" },
+          { paciente_id: nuevoP.id, tipo: "datos_clinicos", aceptado: true, canal: "panel", texto: "Consentimiento del tratamiento de sus datos clínicos y de salud (historia clínica) otorgado en persona en la clínica" },
           { paciente_id: nuevoP.id, tipo: "comunicaciones_recordatorios", aceptado: true, canal: "panel", texto: "Acepta recibir recordatorios y comunicaciones operativas de sus citas (registrado en persona)" },
           ...(typeof acepta_publicidad === "boolean"
             ? [{ paciente_id: nuevoP.id, tipo: "publicidad", aceptado: acepta_publicidad, canal: "panel", texto: acepta_publicidad ? "Acepta recibir novedades y promociones (registrado en persona)" : "Rechaza recibir publicidad (registrado en persona)" }]
