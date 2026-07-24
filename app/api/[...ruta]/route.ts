@@ -282,7 +282,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (metodo === "PATCH" && r1) {
         // gestion: cualquier cita · medico: solo las suyas
         const { data: cita } = await db().from("citas")
-          .select("id, paciente_id, medico_id, tratamiento_id, inicio, estado, pacientes(id, nombre, telefono), medicos(nombre), tratamientos(nombre, area_id)")
+          .select("id, paciente_id, medico_id, tratamiento_id, inicio, estado, pacientes(id, nombre, telefono), medicos!citas_medico_id_fkey(nombre), tratamientos(nombre, area_id)")
           .eq("id", Number(r1)).maybeSingle();
         if (!cita) return err("Cita no encontrada", 404);
         const esSuya = u.rol === "medico" && u.medico_id === cita.medico_id;
@@ -352,7 +352,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (eP || !paciente) return err("Paciente no encontrado", 404);
         const [citas, consentimientos, derechos, chat] = await Promise.all([
           db().from("citas")
-            .select("inicio, fin, estado, confirmada_paciente, notas, creada_via, medicos(nombre), tratamientos(nombre)")
+            .select("inicio, fin, estado, confirmada_paciente, notas, creada_via, medicos!citas_medico_id_fkey(nombre), tratamientos(nombre)")
             .eq("paciente_id", paciente.id).order("inicio"),
           db().from("consentimientos")
             .select("tipo, aceptado, texto, canal, created_at, revocado_at")
@@ -384,7 +384,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (error || !paciente) return err("Paciente no encontrado", 404);
         const { data: citas } = await db()
           .from("citas")
-          .select("id, inicio, estado, confirmada_paciente, medicos(nombre), tratamientos(nombre)")
+          .select("id, inicio, estado, confirmada_paciente, medicos!citas_medico_id_fkey(nombre), tratamientos(nombre)")
           .eq("paciente_id", paciente.id)
           .order("inicio", { ascending: false })
           .limit(50);
