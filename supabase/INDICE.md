@@ -13,6 +13,7 @@ Proyecto Supabase: `zohkencmpagiwxyljsiq` · Requiere haber aplicado antes los S
 | 12 | `patch-documentos-rgpd.sql` | Documentos normativos editables (RAT, runbook de brechas, DPIA, subencargados, política IA) pre-rellenados para la clínica | ✅ |
 | 13 | `patch-firmados.sql` | Archivo de firmados: bucket privado `rgpd-firmados` en Storage + campos firmado_path/at/por en documentos | ⬜ pendiente |
 | 14 | `patch-historia-clinica.sql` | HISTORIA CLÍNICA fundacional: asignación paciente-médico-área (único por área), catálogo CIE-10, consultas con VERSIONADO inmutable (trigger + motivo de edición obligatorio), diagnósticos por consulta + lista de problemas auto-sincronizada, alergias transversales, constantes, registro de accesos. CIE-10-ES 2026 importado (102.448 filas) | ✅ |
+| 15 | `patch-lista-espera.sql` | Tabla `lista_espera` (paciente/área/médico preferido/preferencia, única pendiente por paciente+área): el bot apunta cuando el médico de referencia no tiene hueco esta semana; el médico la gestiona desde su perfil del panel | ⬜ pendiente |
 
 > Nota: los patches 1-9 ya aplicados conservan la nomenclatura antigua ("cliente") en su texto — NO se editan (regla del índice). El nombre actual de las tablas es el que fija el patch 10.
 

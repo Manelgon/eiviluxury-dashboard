@@ -156,8 +156,12 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
 
     case "citas": {
       if (metodo === "POST") {
-        if (!puede(u, "gestion")) return err("Sin permiso", 403);
-        const { paciente_id, medico_id, tratamiento_id, fecha, hora, duracion_min, notas } = body;
+        // gestion (recepción/dirección/admin) crea para cualquier médico;
+        // el rol medico solo puede crear citas EN SU PROPIA agenda (ej. al resolver su lista de espera)
+        const esMedicoPropio = u.rol === "medico" && u.medico_id;
+        if (!puede(u, "gestion") && !esMedicoPropio) return err("Sin permiso", 403);
+        const { paciente_id, tratamiento_id, fecha, hora, duracion_min, notas } = body;
+        const medico_id = esMedicoPropio && !puede(u, "gestion") ? u.medico_id : body.medico_id;
         if (!paciente_id || !medico_id || !fecha || !hora) return err("Faltan datos de la cita");
         const inicio = madridAUtc(fecha, hora);
         const fin = sumarMin(inicio, Number(duracion_min ?? 30));
@@ -896,6 +900,69 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         void auditar(u, body.estado === "firmada" && !cambiaContenido ? "consulta.firmar" : "consulta.editar",
           { tipo: "consulta", id: r1 },
           { paciente_id: actual.paciente_id, cambios, motivo_edicion: body.motivo_edicion ?? null, version_anterior: actual.version_number });
+        return json({ ok: true });
+      }
+      return err("Método no soportado", 405);
+    }
+
+    // ---------- Lista de espera ----------
+    case "lista-espera": {
+      // medico → entradas de SUS áreas; gestion (recepción/dirección/admin) → todas
+      const esGestion = puede(u, "gestion");
+      let areasMedico: number[] | null = null;
+      if (!esGestion) {
+        const ambito = await ambitoClinico(u);
+        if (!ambito) return err("Sin permiso", 403);
+        areasMedico = ambito.total ? null : ambito.areas;
+      }
+      if (metodo === "GET") {
+        const verResueltas = q.get("resueltas") === "1";
+        let lq = db()
+          .from("lista_espera")
+          .select("id, paciente_id, area_id, medico_id, tratamiento_id, preferencia, estado, notas, creada_via, cita_id, created_at, resuelta_at, pacientes(nombre, apellidos, telefono), areas(nombre), medicos(nombre), tratamientos(nombre)")
+          .order("created_at"); // antigüedad primero: el que más espera, arriba
+        lq = verResueltas
+          ? lq.in("estado", ["agendada", "cancelada"]).order("resuelta_at", { ascending: false }).limit(100)
+          : lq.in("estado", ["pendiente", "contactado"]);
+        if (areasMedico) lq = lq.in("area_id", areasMedico.length ? areasMedico : [-1]);
+        const { data, error } = await lq;
+        if (error) return err(error.message, 500);
+        return json(data);
+      }
+      if (metodo === "POST") {
+        if (!esGestion) return err("Sin permiso", 403);
+        const { paciente_id, area_id, medico_id, tratamiento_id, preferencia } = body;
+        if (!paciente_id || !area_id) return err("Faltan paciente o área");
+        const { data, error } = await db().from("lista_espera").insert({
+          paciente_id, area_id, medico_id: medico_id ?? null, tratamiento_id: tratamiento_id ?? null,
+          preferencia: preferencia ?? null, creada_via: "panel",
+        }).select("id").single();
+        if (error) {
+          if (error.code === "23505") return err("Este paciente ya está en la lista de espera de ese área.");
+          return err(error.message, 500);
+        }
+        void auditar(u, "lista_espera.crear", { tipo: "lista_espera", id: String(data.id) },
+          { paciente_id, area_id, medico_id: medico_id ?? null, preferencia: preferencia ?? null });
+        return json({ ok: true, id: data.id });
+      }
+      if (metodo === "PATCH" && r1) {
+        const { data: actual } = await db()
+          .from("lista_espera").select("paciente_id, area_id, estado, notas").eq("id", Number(r1)).maybeSingle();
+        if (!actual) return err("Entrada no encontrada", 404);
+        if (areasMedico && !areasMedico.includes(actual.area_id)) return err("Fuera de tu área", 403);
+        const cambios: Record<string, unknown> = {};
+        if ("estado" in body) {
+          if (!["pendiente", "contactado", "agendada", "cancelada"].includes(body.estado)) return err("Estado no válido");
+          cambios.estado = body.estado;
+          if (body.estado === "agendada" || body.estado === "cancelada") cambios.resuelta_at = new Date().toISOString();
+        }
+        if ("notas" in body) cambios.notas = body.notas;
+        if ("cita_id" in body) cambios.cita_id = body.cita_id;
+        if (!Object.keys(cambios).length) return err("Nada que actualizar");
+        const { error } = await db().from("lista_espera").update(cambios).eq("id", Number(r1));
+        if (error) return err(error.message, 500);
+        void auditar(u, "lista_espera.actualizar", { tipo: "lista_espera", id: r1 },
+          { antes: { estado: actual.estado, notas: actual.notas }, despues: cambios, paciente_id: actual.paciente_id });
         return json({ ok: true });
       }
       return err("Método no soportado", 405);

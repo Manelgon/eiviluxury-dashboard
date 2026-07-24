@@ -2,10 +2,12 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import HistoriaClinica from "./HistoriaClinica";
+import ListaEspera from "./ListaEspera";
 
-/* Vista del rol médico: sus pacientes (asignación activa) → historia clínica.
-   El servidor limita todo a sus áreas; aquí solo se navega. */
+/* Vista del rol médico: sus pacientes (asignación activa) → historia clínica,
+   y su lista de espera. El servidor limita todo a sus áreas; aquí solo se navega. */
 export default function MisPacientes() {
+  const [sub, setSub] = useState<"pacientes" | "espera">("pacientes");
   const [lista, setLista] = useState<any[]>([]);
   const [error, setError] = useState("");
   const [abierto, setAbierto] = useState<any | null>(null);
@@ -46,6 +48,12 @@ export default function MisPacientes() {
 
   return (
     <>
+      <div className="subtabs">
+        <button className={sub === "pacientes" ? "on" : ""} onClick={() => setSub("pacientes")}>Mis pacientes</button>
+        <button className={sub === "espera" ? "on" : ""} onClick={() => setSub("espera")}>Lista de espera</button>
+      </div>
+      {sub === "espera" ? <ListaEspera rolMedico /> : (
+      <>
       <div className="fila">
         <input placeholder="Buscar entre mis pacientes…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320 }} />
       </div>
@@ -63,6 +71,8 @@ export default function MisPacientes() {
           {filtrados.length === 0 && <tr><td colSpan={4} className="vacio">No tienes pacientes asignados todavía</td></tr>}
         </tbody>
       </table>
+      </>
+      )}
     </>
   );
 }

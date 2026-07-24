@@ -2,16 +2,20 @@
 import { Fragment, useEffect, useState } from "react";
 import { api, fmtFechaHora } from "./api";
 import HistoriaClinica, { Asignaciones } from "./HistoriaClinica";
+import ListaEspera from "./ListaEspera";
 
 export default function Pacientes({ rol }: { rol?: string }) {
-  const [sub, setSub] = useState<"pacientes" | "escalados">("pacientes");
+  const [sub, setSub] = useState<"pacientes" | "espera" | "escalados">("pacientes");
   return (
     <>
       <div className="subtabs">
         <button className={sub === "pacientes" ? "on" : ""} onClick={() => setSub("pacientes")}>Pacientes</button>
+        <button className={sub === "espera" ? "on" : ""} onClick={() => setSub("espera")}>Lista de espera</button>
         <button className={sub === "escalados" ? "on" : ""} onClick={() => setSub("escalados")}>Conversaciones escaladas</button>
       </div>
-      {sub === "pacientes" ? <ListaPacientes rol={rol} /> : <Escalados />}
+      {sub === "pacientes" && <ListaPacientes rol={rol} />}
+      {sub === "espera" && <ListaEspera />}
+      {sub === "escalados" && <Escalados />}
     </>
   );
 }
