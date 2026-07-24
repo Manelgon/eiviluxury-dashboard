@@ -10,36 +10,29 @@ const DIAS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "
 
 export default function Config({ sub, setSub, rol, tieneFicha = false }: { sub: string; setSub: (s: string) => void; rol: string; tieneFicha?: boolean }) {
   const puedeUsuarios = rol === "admin" || rol === "direccion";
-  // Médico/enfermería: su configuración es SOLO su perfil (ficha + agenda)
-  if (["medico", "enfermera"].includes(rol)) {
-    return (
-      <>
-        <div className="subtabs"><button className="on">Mi perfil</button></div>
-        <MiPerfil />
-      </>
-    );
-  }
+  const perfilInicial = sub.includes(":") ? sub.split(":")[1] : undefined;
+  // Médico/enfermería: su configuración es SOLO su perfil (ficha + horario + ausencias)
+  if (["medico", "enfermera"].includes(rol)) return <MiPerfil inicial={perfilInicial} />;
+  // Mi perfil es un espacio propio: dentro solo se ven SUS pestañas, no las de configuración
+  if (sub.startsWith("mi-perfil") && tieneFicha) return <MiPerfil inicial={perfilInicial} onVolver={() => setSub("catalogo")} />;
   return (
     <>
       <div className="subtabs">
         {tieneFicha && <button className={sub === "mi-perfil" ? "on" : ""} onClick={() => setSub("mi-perfil")}>Mi perfil</button>}
-        <button className={sub === "tratamientos" ? "on" : ""} onClick={() => setSub("tratamientos")}>Tratamientos y precios</button>
+        <button className={sub === "catalogo" ? "on" : ""} onClick={() => setSub("catalogo")}>Áreas y tratamientos</button>
         <button className={sub === "faq" ? "on" : ""} onClick={() => setSub("faq")}>FAQ del bot</button>
         <button className={sub === "horarios" ? "on" : ""} onClick={() => setSub("horarios")}>Horarios</button>
         <button className={sub === "bloqueos" ? "on" : ""} onClick={() => setSub("bloqueos")}>Vacaciones y bloqueos</button>
-        <button className={sub === "areas" ? "on" : ""} onClick={() => setSub("areas")}>Áreas</button>
         <button className={sub === "medicos" ? "on" : ""} onClick={() => setSub("medicos")}>Médicos</button>
         {puedeUsuarios && <button className={sub === "usuarios" ? "on" : ""} onClick={() => setSub("usuarios")}>Usuarios y permisos</button>}
         <button className={sub === "derechos" ? "on" : ""} onClick={() => setSub("derechos")}>Derechos RGPD</button>
         <button className={sub === "docs-rgpd" ? "on" : ""} onClick={() => setSub("docs-rgpd")}>Documentos RGPD</button>
         {puedeUsuarios && <button className={sub === "logs" ? "on" : ""} onClick={() => setSub("logs")}>Logs</button>}
       </div>
-      {sub === "mi-perfil" && tieneFicha && <MiPerfil />}
-      {sub === "tratamientos" && <Tratamientos />}
+      {(sub === "catalogo" || sub === "tratamientos" || sub === "areas") && <AreasTratamientos />}
       {sub === "faq" && <Faq />}
       {sub === "horarios" && <Horarios />}
       {sub === "bloqueos" && <Bloqueos />}
-      {sub === "areas" && <Areas />}
       {sub === "medicos" && <Medicos />}
       {sub === "usuarios" && puedeUsuarios && <Usuarios rolActual={rol} />}
       {sub === "derechos" && <Derechos />}
@@ -49,16 +42,56 @@ export default function Config({ sub, setSub, rol, tieneFicha = false }: { sub: 
   );
 }
 
-function Areas() {
-  const [lista, setLista] = useState<any[]>([]);
+/* Catálogo unificado: cada ÁREA con sus TRATAMIENTOS dentro (antes eran dos secciones) */
+function AreasTratamientos() {
+  const [areas, setAreas] = useState<any[]>([]);
+  const [trats, setTrats] = useState<any[]>([]);
   const [nombre, setNombre] = useState("");
   const [descripcion, setDescripcion] = useState("");
-  const cargar = () => api<any[]>("areas").then(setLista).catch(() => {});
+  const [nuevo, setNuevo] = useState<any | null>(null);
+
+  const cargar = () => {
+    api<any[]>("areas").then(setAreas).catch(() => {});
+    api<any[]>("tratamientos").then(setTrats).catch(() => {});
+  };
   useEffect(() => { cargar(); }, []);
+
+  async function actualizarTrat(id: number, campos: any) {
+    try { await api(`tratamientos/${id}`, { method: "PATCH", body: campos }); cargar(); }
+    catch (e: any) { alert(e.message); }
+  }
+
+  const TablaTrats = ({ lista }: { lista: any[] }) => (
+    <table className="t">
+      <thead><tr><th>Tratamiento</th><th>Precio €</th><th>Valoración</th><th>Min</th><th>💉 Enferm.</th><th>Activo</th></tr></thead>
+      <tbody>
+        {lista.map((t) => (
+          <tr key={t.id} style={{ opacity: t.activo ? 1 : 0.5 }}>
+            <td>{t.nombre}</td>
+            <td style={{ width: 110 }}>
+              <input type="number" step="0.01" defaultValue={t.precio_eur ?? ""} placeholder="valorac."
+                onBlur={(e) => actualizarTrat(t.id, { precio_eur: e.target.value === "" ? null : Number(e.target.value) })} />
+            </td>
+            <td><input type="checkbox" defaultChecked={t.requiere_valoracion} onChange={(e) => actualizarTrat(t.id, { requiere_valoracion: e.target.checked })} /></td>
+            <td style={{ width: 80 }}>
+              <input type="number" defaultValue={t.duracion_min} onBlur={(e) => actualizarTrat(t.id, { duracion_min: Number(e.target.value) || 30 })} />
+            </td>
+            <td><input type="checkbox" title="Requiere enfermera de apoyo" defaultChecked={t.requiere_enfermeria} onChange={(e) => actualizarTrat(t.id, { requiere_enfermeria: e.target.checked })} /></td>
+            <td><input type="checkbox" defaultChecked={t.activo} onChange={(e) => actualizarTrat(t.id, { activo: e.target.checked })} /></td>
+          </tr>
+        ))}
+        {lista.length === 0 && <tr><td colSpan={6} className="vacio">Sin tratamientos en este área</td></tr>}
+      </tbody>
+    </table>
+  );
+
+  const sinArea = trats.filter((t) => !t.area_id);
 
   return (
     <>
-      <p className="nota">Las áreas organizan tratamientos y médicos. Desactivar en vez de borrar (los tratamientos vinculados se conservan).</p>
+      <p className="nota">
+        Cada área con sus tratamientos dentro. Precio en blanco = "requiere valoración" (Alexia no dará cifra). Desactivar en vez de borrar. Los cambios los usa el bot al momento.
+      </p>
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="fila" style={{ marginBottom: 0 }}>
           <input placeholder="Nombre del área nueva" value={nombre} onChange={(e) => setNombre(e.target.value)} style={{ width: 240 }} />
@@ -70,20 +103,59 @@ function Areas() {
           }}>+ Crear área</button>
         </div>
       </div>
-      <table className="t">
-        <thead><tr><th>Área</th><th>Descripción</th><th>Activa</th></tr></thead>
-        <tbody>
-          {lista.map((a) => (
-            <tr key={a.id} style={{ opacity: a.activo ? 1 : 0.5 }}>
-              <td style={{ width: 260 }}>
-                <input defaultValue={a.nombre} onBlur={(e) => { if (e.target.value.trim() && e.target.value !== a.nombre) api(`areas/${a.id}`, { method: "PATCH", body: { nombre: e.target.value.trim() } }).catch((er: any) => alert(er.message)); }} />
-              </td>
-              <td><input defaultValue={a.descripcion ?? ""} onBlur={(e) => api(`areas/${a.id}`, { method: "PATCH", body: { descripcion: e.target.value || null } })} /></td>
-              <td><input type="checkbox" defaultChecked={a.activo} onChange={(e) => api(`areas/${a.id}`, { method: "PATCH", body: { activo: e.target.checked } })} /></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      {areas.map((a) => (
+        <div className="card" key={a.id} style={{ marginBottom: 14, opacity: a.activo ? 1 : 0.55 }}>
+          <div className="fila">
+            <input defaultValue={a.nombre} style={{ width: 240, fontWeight: 600 }}
+              onBlur={(e) => { if (e.target.value.trim() && e.target.value !== a.nombre) api(`areas/${a.id}`, { method: "PATCH", body: { nombre: e.target.value.trim() } }).then(cargar).catch((er: any) => alert(er.message)); }} />
+            <input defaultValue={a.descripcion ?? ""} placeholder="Descripción" style={{ flex: 1, minWidth: 180 }}
+              onBlur={(e) => api(`areas/${a.id}`, { method: "PATCH", body: { descripcion: e.target.value || null } })} />
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+              <input type="checkbox" style={{ width: "auto" }} defaultChecked={a.activo}
+                onChange={(e) => api(`areas/${a.id}`, { method: "PATCH", body: { activo: e.target.checked } }).then(cargar)} />
+              Activa
+            </label>
+            <button className="btn mini oro" onClick={() => setNuevo({ nombre: "", area_id: a.id, precio_eur: "", duracion_min: 30 })}>+ Tratamiento</button>
+          </div>
+          <TablaTrats lista={trats.filter((t) => t.area_id === a.id)} />
+        </div>
+      ))}
+
+      {sinArea.length > 0 && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <p className="nota" style={{ marginTop: 0 }}><b>Sin área asignada</b> — conviene moverlos a un área (edítalos recreándolos en su área y desactivando estos)</p>
+          <TablaTrats lista={sinArea} />
+        </div>
+      )}
+
+      {nuevo && (
+        <div className="modal-bg" onClick={() => setNuevo(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Nuevo tratamiento · {areas.find((a) => a.id === nuevo.area_id)?.nombre ?? ""}</h3>
+            <div className="campo"><label>Nombre</label><input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} autoFocus /></div>
+            <div className="campo"><label>Área</label>
+              <select value={nuevo.area_id ?? ""} onChange={(e) => setNuevo({ ...nuevo, area_id: Number(e.target.value) })}>
+                {areas.filter((a) => a.activo).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+              </select>
+            </div>
+            <div className="campo" style={{ display: "flex", gap: 10 }}>
+              <div style={{ flex: 1 }}><label>Precio € (vacío = valoración)</label><input type="number" step="0.01" value={nuevo.precio_eur} onChange={(e) => setNuevo({ ...nuevo, precio_eur: e.target.value })} /></div>
+              <div style={{ flex: 1 }}><label>Duración (min)</label><input type="number" value={nuevo.duracion_min} onChange={(e) => setNuevo({ ...nuevo, duracion_min: Number(e.target.value) })} /></div>
+            </div>
+            <div className="fila" style={{ justifyContent: "flex-end" }}>
+              <button className="btn suave" onClick={() => setNuevo(null)}>Cerrar</button>
+              <button className="btn oro" onClick={async () => {
+                if (!nuevo.nombre.trim()) { alert("Falta el nombre"); return; }
+                try {
+                  await api("tratamientos", { method: "POST", body: { nombre: nuevo.nombre.trim(), area_id: nuevo.area_id, precio_eur: nuevo.precio_eur === "" ? null : Number(nuevo.precio_eur), duracion_min: nuevo.duracion_min, requiere_valoracion: nuevo.precio_eur === "" } });
+                  setNuevo(null); cargar();
+                } catch (e: any) { alert(e.message); }
+              }}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -413,75 +485,6 @@ function CrearUsuario({ rolActual, medicos, onCerrar }: { rolActual: string; med
         )}
       </div>
     </div>
-  );
-}
-
-function Tratamientos() {
-  const [lista, setLista] = useState<any[]>([]);
-  const [areas, setAreas] = useState<any[]>([]);
-  const [nuevo, setNuevo] = useState<any | null>(null);
-  const cargar = () => api<any[]>("tratamientos").then(setLista).catch(() => {});
-  useEffect(() => { cargar(); api<any[]>("areas").then((a) => setAreas(a.filter((x: any) => x.activo))).catch(() => {}); }, []);
-
-  async function actualizar(id: number, campos: any) {
-    try { await api(`tratamientos/${id}`, { method: "PATCH", body: campos }); cargar(); }
-    catch (e: any) { alert(e.message); }
-  }
-
-  return (
-    <>
-      <p className="nota">El precio en blanco = "requiere valoración" (Alexia no dará cifra). Los cambios los usa el bot al momento.</p>
-      <table className="t">
-        <thead><tr><th>Tratamiento</th><th>Área</th><th>Precio €</th><th>Valoración</th><th>Min</th><th>💉 Enferm.</th><th>Activo</th></tr></thead>
-        <tbody>
-          {lista.map((t) => (
-            <tr key={t.id} style={{ opacity: t.activo ? 1 : 0.5 }}>
-              <td>{t.nombre}</td>
-              <td>{t.areas?.nombre ?? "—"}</td>
-              <td style={{ width: 110 }}>
-                <input type="number" step="0.01" defaultValue={t.precio_eur ?? ""} placeholder="valorac."
-                  onBlur={(e) => actualizar(t.id, { precio_eur: e.target.value === "" ? null : Number(e.target.value) })} />
-              </td>
-              <td><input type="checkbox" defaultChecked={t.requiere_valoracion} onChange={(e) => actualizar(t.id, { requiere_valoracion: e.target.checked })} /></td>
-              <td style={{ width: 80 }}>
-                <input type="number" defaultValue={t.duracion_min} onBlur={(e) => actualizar(t.id, { duracion_min: Number(e.target.value) || 30 })} />
-              </td>
-              <td><input type="checkbox" title="Requiere enfermera de apoyo" defaultChecked={t.requiere_enfermeria} onChange={(e) => actualizar(t.id, { requiere_enfermeria: e.target.checked })} /></td>
-              <td><input type="checkbox" defaultChecked={t.activo} onChange={(e) => actualizar(t.id, { activo: e.target.checked })} /></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="fila" style={{ marginTop: 12 }}>
-        <button className="btn oro" onClick={() => setNuevo({ nombre: "", area_id: areas[0]?.id ?? null, precio_eur: "", duracion_min: 30, requiere_valoracion: false })}>+ Añadir tratamiento</button>
-      </div>
-      {nuevo && (
-        <div className="modal-bg" onClick={() => setNuevo(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Nuevo tratamiento</h3>
-            <div className="campo"><label>Nombre</label><input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} /></div>
-            <div className="campo"><label>Área</label>
-              <select value={nuevo.area_id ?? ""} onChange={(e) => setNuevo({ ...nuevo, area_id: Number(e.target.value) })}>
-                {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-              </select>
-            </div>
-            <div className="campo" style={{ display: "flex", gap: 10 }}>
-              <div style={{ flex: 1 }}><label>Precio € (vacío = valoración)</label><input type="number" step="0.01" value={nuevo.precio_eur} onChange={(e) => setNuevo({ ...nuevo, precio_eur: e.target.value })} /></div>
-              <div style={{ flex: 1 }}><label>Duración (min)</label><input type="number" value={nuevo.duracion_min} onChange={(e) => setNuevo({ ...nuevo, duracion_min: Number(e.target.value) })} /></div>
-            </div>
-            <div className="fila" style={{ justifyContent: "flex-end" }}>
-              <button className="btn suave" onClick={() => setNuevo(null)}>Cerrar</button>
-              <button className="btn oro" onClick={async () => {
-                try {
-                  await api("tratamientos", { method: "POST", body: { nombre: nuevo.nombre, area_id: nuevo.area_id, precio_eur: nuevo.precio_eur === "" ? null : Number(nuevo.precio_eur), duracion_min: nuevo.duracion_min, requiere_valoracion: nuevo.precio_eur === "" } });
-                  setNuevo(null); cargar();
-                } catch (e: any) { alert(e.message); }
-              }}>Guardar</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
   );
 }
 

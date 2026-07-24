@@ -15,8 +15,9 @@ export default function Page() {
   const [me, setMe] = useState<Me | null>(null);
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState("inicio");
-  const [configSub, setConfigSub] = useState("tratamientos");
+  const [configSub, setConfigSub] = useState("catalogo");
   const [menuConf, setMenuConf] = useState(false);
+  const [menuPerfil, setMenuPerfil] = useState(false);
 
   useEffect(() => {
     if (!getToken()) { setCargando(false); return; }
@@ -47,27 +48,42 @@ export default function Page() {
               onClick={() => setMenuConf(!menuConf)}>⚙</button>
             {menuConf && (
               <>
-                <div className="menu-fondo" onClick={() => setMenuConf(false)} />
+                <div className="menu-fondo" onClick={() => { setMenuConf(false); setMenuPerfil(false); }} />
                 <div className="menu-conf">
-                  {(esMedico
-                    ? [{ id: "mi-perfil", t: "Mi perfil" }]
-                    : [
-                        ...(me.medico_id ? [{ id: "mi-perfil", t: "Mi perfil (médico)" }] : []),
-                        { id: "tratamientos", t: "Tratamientos y precios" },
-                        { id: "faq", t: "FAQ del bot" },
-                        { id: "horarios", t: "Horarios" },
-                        { id: "bloqueos", t: "Vacaciones y bloqueos" },
-                        { id: "areas", t: "Áreas de la clínica" },
-                        { id: "medicos", t: "Médicos y enfermería" },
-                        { id: "derechos", t: "Derechos RGPD" },
-                        { id: "docs-rgpd", t: "Documentos RGPD" },
-                        ...(me.rol === "admin" || me.rol === "direccion"
-                          ? [{ id: "usuarios", t: "Usuarios y permisos" }, { id: "logs", t: "Logs de actividad" }]
-                          : []),
-                      ]
-                  ).map((o) => (
+                  {/* Mi perfil: submenú de segundo nivel con sus secciones */}
+                  {Boolean(me.medico_id) && (
+                    <>
+                      <button className={tab === "config" && configSub.startsWith("mi-perfil") ? "on" : ""}
+                        onClick={() => setMenuPerfil(!menuPerfil)}>
+                        Mi perfil {esMedico ? "" : "(médico) "}{menuPerfil ? "▾" : "▸"}
+                      </button>
+                      {menuPerfil && [
+                        { id: "mi-perfil:ficha", t: "Mi ficha" },
+                        { id: "mi-perfil:horario", t: "Mi horario" },
+                        { id: "mi-perfil:ausencias", t: "Ausencias y vacaciones" },
+                      ].map((o) => (
+                        <button key={o.id} style={{ paddingLeft: 30, fontSize: 13 }}
+                          className={tab === "config" && configSub === o.id ? "on" : ""}
+                          onClick={() => { setTab("config"); setConfigSub(o.id); setMenuConf(false); setMenuPerfil(false); }}>
+                          {o.t}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {(esMedico ? [] : [
+                    { id: "catalogo", t: "Áreas y tratamientos" },
+                    { id: "faq", t: "FAQ del bot" },
+                    { id: "horarios", t: "Horarios" },
+                    { id: "bloqueos", t: "Vacaciones y bloqueos" },
+                    { id: "medicos", t: "Médicos y enfermería" },
+                    { id: "derechos", t: "Derechos RGPD" },
+                    { id: "docs-rgpd", t: "Documentos RGPD" },
+                    ...(me.rol === "admin" || me.rol === "direccion"
+                      ? [{ id: "usuarios", t: "Usuarios y permisos" }, { id: "logs", t: "Logs de actividad" }]
+                      : []),
+                  ]).map((o) => (
                     <button key={o.id} className={tab === "config" && configSub === o.id ? "on" : ""}
-                      onClick={() => { setTab("config"); setConfigSub(o.id); setMenuConf(false); }}>
+                      onClick={() => { setTab("config"); setConfigSub(o.id); setMenuConf(false); setMenuPerfil(false); }}>
                       {o.t}
                     </button>
                   ))}

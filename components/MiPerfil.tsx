@@ -12,7 +12,12 @@ import MiAgenda from "./MiAgenda";
    · Debajo, su agenda completa: antelación, semana tipo, ausencias.
    ============================================================ */
 
-export default function MiPerfil() {
+export default function MiPerfil({ inicial, onVolver }: { inicial?: string; onVolver?: () => void }) {
+  const [sub, setSub] = useState<"ficha" | "horario" | "ausencias">(
+    inicial === "horario" || inicial === "ausencias" ? inicial : "ficha");
+  useEffect(() => {
+    if (inicial === "horario" || inicial === "ausencias" || inicial === "ficha") setSub(inicial);
+  }, [inicial]);
   const [datos, setDatos] = useState<any | null>(null);
   const [f, setF] = useState({ telefono: "", email: "", direccion: "", bio: "" });
   const [msg, setMsg] = useState("");
@@ -46,6 +51,16 @@ export default function MiPerfil() {
 
   return (
     <>
+      <div className="subtabs">
+        {onVolver && <button onClick={onVolver}>← Configuración</button>}
+        <button className={sub === "ficha" ? "on" : ""} onClick={() => setSub("ficha")}>Mi ficha</button>
+        <button className={sub === "horario" ? "on" : ""} onClick={() => setSub("horario")}>Mi horario</button>
+        <button className={sub === "ausencias" ? "on" : ""} onClick={() => setSub("ausencias")}>Ausencias y vacaciones</button>
+      </div>
+
+      {sub === "horario" && <MiAgenda seccion="horario" />}
+      {sub === "ausencias" && <MiAgenda seccion="ausencias" />}
+      {sub === "ficha" && (
       <div className="card" style={{ marginBottom: 14 }}>
         <p className="nota" style={{ marginTop: 0 }}>
           <b>Mi ficha</b> — los datos con 🔒 son identificativos y solo los puede modificar dirección; los de contacto los editas tú.
@@ -73,7 +88,7 @@ export default function MiPerfil() {
           <button className="btn oro" onClick={guardar}>Guardar contacto</button>
         </div>
       </div>
-      <MiAgenda />
+      )}
     </>
   );
 }

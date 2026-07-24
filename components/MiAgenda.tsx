@@ -16,7 +16,7 @@ import { api, fmtFechaHora } from "./api";
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 const DOW = [1, 2, 3, 4, 5, 6, 0]; // orden visual → dia_semana en BBDD
 
-export default function MiAgenda() {
+export default function MiAgenda({ seccion = "todo" }: { seccion?: "horario" | "ausencias" | "todo" }) {
   const [datos, setDatos] = useState<any | null>(null);
   const [error, setError] = useState("");
   const cargar = () => api<any>("mi-agenda").then((d) => { setDatos(d); setError(""); }).catch((e) => setError(e.message));
@@ -27,9 +27,13 @@ export default function MiAgenda() {
 
   return (
     <>
-      <Antelacion actual={datos.ficha?.antelacion_horas ?? 0} onCambio={cargar} />
-      <SemanaTipo horarios={datos.horarios} onCambio={cargar} />
-      <Ausencias bloqueos={datos.bloqueos} onCambio={cargar} />
+      {seccion !== "ausencias" && (
+        <>
+          <Antelacion actual={datos.ficha?.antelacion_horas ?? 0} onCambio={cargar} />
+          <SemanaTipo horarios={datos.horarios} onCambio={cargar} />
+        </>
+      )}
+      {seccion !== "horario" && <Ausencias bloqueos={datos.bloqueos} onCambio={cargar} />}
     </>
   );
 }
