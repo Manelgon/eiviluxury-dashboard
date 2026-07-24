@@ -12,7 +12,8 @@ const err = (mensaje: string, status = 400) => json({ error: mensaje }, status);
 async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> {
   const [r0, r1, r2] = ruta;
   const metodo = req.method;
-  const body = metodo === "GET" || metodo === "DELETE" ? {} : await req.json().catch(() => ({}));
+  const esMultipart = (req.headers.get("content-type") ?? "").includes("multipart/form-data");
+  const body = metodo === "GET" || metodo === "DELETE" || esMultipart ? {} : await req.json().catch(() => ({}));
   const q = req.nextUrl.searchParams;
 
   // ---------- LOGIN (sin token) ----------
@@ -362,6 +363,46 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     // ---------- Documentos normativos RGPD ----------
     case "documentos-rgpd": {
       if (!puede(u, "config")) return err("Sin permiso", 403);
+
+      // ---- Versión firmada escaneada (Supabase Storage, bucket privado) ----
+      if (metodo === "POST" && r1 && r2 === "firmado") {
+        const fd = await req.formData().catch(() => null);
+        const archivo = fd?.get("archivo") as File | null;
+        if (!archivo) return err("Falta el archivo");
+        if (archivo.size > 10 * 1024 * 1024) return err("Máximo 10 MB");
+        const ext = (archivo.name.split(".").pop() ?? "").toLowerCase();
+        if (!["pdf", "jpg", "jpeg", "png"].includes(ext)) return err("Formato no válido: PDF, JPG o PNG");
+        const path = `${r1}/firmado-${Date.now()}.${ext}`;
+        const buf = Buffer.from(await archivo.arrayBuffer());
+        const { error: eU } = await db().storage.from("rgpd-firmados")
+          .upload(path, buf, { contentType: archivo.type || "application/octet-stream" });
+        if (eU) return err(eU.message, 500);
+        const { error } = await db().from("rgpd_documentos").update({
+          firmado_path: path, firmado_at: new Date().toISOString(), firmado_por: u.email,
+        }).eq("id", r1);
+        if (error) return err(error.message, 500);
+        void auditar(u, "rgpd.documento.firmado_subir", { tipo: "documento_rgpd", id: r1 }, { path, bytes: archivo.size, nombre_original: archivo.name });
+        return json({ ok: true });
+      }
+      if (metodo === "GET" && r1 && r2 === "firmado") {
+        const { data: docF } = await db().from("rgpd_documentos").select("firmado_path").eq("id", r1).maybeSingle();
+        if (!docF?.firmado_path) return err("No hay versión firmada", 404);
+        const { data: signed, error } = await db().storage.from("rgpd-firmados").createSignedUrl(docF.firmado_path, 300);
+        if (error) return err(error.message, 500);
+        void auditar(u, "rgpd.documento.firmado_ver", { tipo: "documento_rgpd", id: r1 }, { path: docF.firmado_path });
+        return json({ url: signed.signedUrl });
+      }
+      if (metodo === "DELETE" && r1 && r2 === "firmado") {
+        const { data: docF } = await db().from("rgpd_documentos").select("firmado_path").eq("id", r1).maybeSingle();
+        if (docF?.firmado_path) await db().storage.from("rgpd-firmados").remove([docF.firmado_path]);
+        const { error } = await db().from("rgpd_documentos").update({
+          firmado_path: null, firmado_at: null, firmado_por: null,
+        }).eq("id", r1);
+        if (error) return err(error.message, 500);
+        void auditar(u, "rgpd.documento.firmado_quitar", { tipo: "documento_rgpd", id: r1 }, { path: docF?.firmado_path ?? null });
+        return json({ ok: true });
+      }
+
       if (metodo === "GET") {
         const { data, error } = await db().from("rgpd_documentos").select("*").order("id");
         return error ? err(error.message, 500) : json(data);

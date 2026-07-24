@@ -1,8 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api } from "./api";
+import { api, getToken } from "./api";
 
-interface Doc { id: string; titulo: string; descripcion: string | null; contenido: any; actualizado_por: string | null; actualizado_at: string | null }
+interface Doc {
+  id: string; titulo: string; descripcion: string | null; contenido: any;
+  actualizado_por: string | null; actualizado_at: string | null;
+  firmado_path?: string | null; firmado_at?: string | null; firmado_por?: string | null;
+}
 
 const ETIQUETAS: Record<string, string> = {
   responsable: "Responsable del tratamiento", domicilio: "Domicilio", contacto: "Contacto",
@@ -38,15 +42,67 @@ export default function DocumentosRgpd() {
                 ? `Última edición: ${new Date(d.actualizado_at).toLocaleDateString("es-ES")} · ${d.actualizado_por}`
                 : "Sin revisar todavía"}
             </p>
-            <div className="fila" style={{ marginBottom: 0 }}>
+            <div className="fila" style={{ marginBottom: 8 }}>
               <button className="btn mini oro" onClick={() => setAbierto(d)}>✎ Editar</button>
               <button className="btn mini suave" onClick={() => imprimirDoc(d)}>🖨 Imprimir / firmar</button>
             </div>
+            <Firmado doc={d} onCambio={cargar} />
           </div>
         ))}
       </div>
       {abierto && <EditorDoc doc={abierto} onCerrar={() => { setAbierto(null); cargar(); }} />}
     </>
+  );
+}
+
+/* Archivo de la versión firmada escaneada (Supabase Storage) */
+function Firmado({ doc, onCambio }: { doc: Doc; onCambio: () => void }) {
+  const [subiendo, setSubiendo] = useState(false);
+
+  async function subir(file: File) {
+    setSubiendo(true);
+    try {
+      const fd = new FormData();
+      fd.append("archivo", file);
+      const res = await fetch(`/api/documentos-rgpd/${doc.id}/firmado`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Error al subir");
+      onCambio();
+    } catch (e: any) { alert(e.message); }
+    finally { setSubiendo(false); }
+  }
+
+  if (doc.firmado_path) {
+    return (
+      <div className="fila" style={{ marginBottom: 0 }}>
+        <span className="chip confirmada">
+          ✓ Firmado el {doc.firmado_at ? new Date(doc.firmado_at).toLocaleDateString("es-ES") : ""} · {doc.firmado_por}
+        </span>
+        <button className="btn mini suave" onClick={async () => {
+          try { const { url } = await api<{ url: string }>(`documentos-rgpd/${doc.id}/firmado`); window.open(url, "_blank"); }
+          catch (e: any) { alert(e.message); }
+        }}>👁 Ver firmado</button>
+        <button className="btn mini suave" onClick={async () => {
+          if (!confirm("¿Quitar la versión firmada archivada?")) return;
+          await api(`documentos-rgpd/${doc.id}/firmado`, { method: "DELETE" });
+          onCambio();
+        }}>✕ Quitar</button>
+      </div>
+    );
+  }
+  return (
+    <div className="fila" style={{ marginBottom: 0 }}>
+      <span className="chip cancelada">⚠ Sin versión firmada</span>
+      <label className="btn mini suave" style={{ cursor: "pointer" }}>
+        {subiendo ? "Subiendo…" : "⬆ Subir firmado (PDF/foto)"}
+        <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} disabled={subiendo}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) subir(f); e.target.value = ""; }} />
+      </label>
+    </div>
   );
 }
 
