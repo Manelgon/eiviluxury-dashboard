@@ -1,0 +1,95 @@
+:root{
+  --oro:#b3925f; --oro-claro:#d4bc94; --bronce:#aa6c05; --tinta:#1c1a17;
+  --gris:#5f5a52; --muted:#8d8577; --marfil:#faf7f2; --blanco:#fff;
+  --linea:#e8e0d3; --verde:#4d7c5f; --rojo:#a04545; --ambar:#b07d2a;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--marfil);color:var(--tinta);line-height:1.55;font-size:14.5px}
+button{font:inherit;cursor:pointer}
+input,select,textarea{font:inherit;padding:8px 10px;border:1px solid var(--linea);border-radius:8px;background:#fff;color:var(--tinta);width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--oro-claro)}
+
+/* Login */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#211e1a,#35302a)}
+.login-card{background:var(--blanco);border-radius:16px;padding:38px 34px;width:min(380px,92vw);text-align:center}
+.login-card .marca{font-size:22px;letter-spacing:5px;font-weight:300;color:var(--tinta)}
+.login-card .marca b{font-weight:600}
+.login-card .sub{font-size:11px;letter-spacing:4px;text-transform:uppercase;color:var(--oro);margin:6px 0 26px}
+.login-card form{display:flex;flex-direction:column;gap:12px;text-align:left}
+.login-card label{font-size:12px;color:var(--gris)}
+.error{color:var(--rojo);font-size:13px;margin-top:10px}
+
+/* Shell */
+.topbar{background:linear-gradient(120deg,#211e1a,#2e2a24);color:#fff;padding:0 18px;display:flex;align-items:center;gap:18px;height:56px;position:sticky;top:0;z-index:50}
+.topbar .marca{font-size:15px;letter-spacing:3px;font-weight:300;color:var(--oro-claro);white-space:nowrap}
+.topbar .marca b{font-weight:600;color:#fff}
+.tabs{display:flex;gap:2px;flex:1;overflow-x:auto}
+.tabs button{background:none;border:none;color:#b8b0a1;padding:18px 14px;font-size:13.5px;letter-spacing:.5px;border-bottom:2px solid transparent;white-space:nowrap}
+.tabs button.on{color:#fff;border-bottom-color:var(--oro)}
+.quien{font-size:12px;color:#b8b0a1;white-space:nowrap}
+.salir{background:none;border:1px solid #57503f;color:var(--oro-claro);border-radius:8px;padding:6px 12px;font-size:12px}
+
+.main{max-width:1180px;margin:0 auto;padding:22px 16px 60px}
+h2.seccion{font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--oro);margin:4px 0 14px}
+.fila{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.fila > *{width:auto}
+
+.card{background:var(--blanco);border:1px solid var(--linea);border-radius:14px;padding:16px}
+.btn{background:var(--tinta);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13.5px}
+.btn.oro{background:var(--oro)}
+.btn.suave{background:#efe9de;color:var(--tinta)}
+.btn.mini{padding:4px 10px;font-size:12px;border-radius:6px}
+.btn:disabled{opacity:.5;cursor:default}
+
+table.t{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--linea);border-radius:12px;overflow:hidden}
+table.t th{font-size:11.5px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--linea);background:#fdfbf7}
+table.t td{padding:10px 12px;border-bottom:1px solid var(--linea);vertical-align:middle}
+table.t tr:last-child td{border-bottom:none}
+
+.chip{display:inline-block;font-size:11px;letter-spacing:.5px;padding:3px 10px;border-radius:999px;background:#efe9de;color:var(--gris)}
+.chip.confirmada{background:#e3ece5;color:var(--verde)}
+.chip.pendiente{background:#f5ecd9;color:var(--ambar)}
+.chip.cancelada{background:#f2e2e2;color:var(--rojo)}
+.chip.completada{background:#e5e5ef;color:#4d4d7c}
+.chip.no_show{background:#efdcdc;color:#8a3d3d}
+
+/* Agenda */
+.agenda-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.med-col{background:#fff;border:1px solid var(--linea);border-radius:14px;overflow:hidden}
+.med-col header{background:#fdfbf7;border-bottom:1px solid var(--linea);padding:10px 14px}
+.med-col header b{font-size:14px}
+.med-col header span{display:block;font-size:11.5px;color:var(--muted)}
+.cita{padding:10px 14px;border-bottom:1px solid var(--linea);display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.cita:last-child{border-bottom:none}
+.cita .hora{font-weight:600;font-size:14px}
+.cita .quien-c{font-size:13px}
+.cita .trat{font-size:12px;color:var(--muted)}
+.cita .acciones{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+.vacio{padding:16px;color:var(--muted);font-size:13px;text-align:center}
+
+/* Modal */
+.modal-bg{position:fixed;inset:0;background:rgba(28,26,23,.55);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
+.modal{background:#fff;border-radius:16px;padding:24px;width:min(480px,94vw);max-height:90vh;overflow:auto}
+.modal h3{margin-bottom:14px;font-size:17px}
+.modal .campo{margin-bottom:10px}
+.modal .campo label{font-size:12px;color:var(--gris);display:block;margin-bottom:3px}
+
+/* Métricas */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:18px}
+.kpi{background:#fff;border:1px solid var(--linea);border-radius:14px;padding:18px}
+.kpi .v{font-size:30px;font-weight:600;letter-spacing:-.5px}
+.kpi .l{font-size:12px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;margin-top:2px}
+.chart{background:#fff;border:1px solid var(--linea);border-radius:14px;padding:18px;position:relative}
+.chart h3{font-size:14px;margin-bottom:14px}
+.barras{display:flex;align-items:flex-end;gap:10px;height:160px}
+.barra-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
+.barra{width:100%;max-width:46px;background:var(--bronce);border-radius:4px 4px 0 0;min-height:2px;transition:opacity .15s;position:relative}
+.barra:hover{opacity:.8}
+.barra-lbl{font-size:10.5px;color:var(--muted)}
+.tip{position:absolute;background:var(--tinta);color:#fff;font-size:12px;padding:6px 10px;border-radius:8px;pointer-events:none;white-space:nowrap;transform:translate(-50%,-110%);z-index:10}
+
+.subtabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.subtabs button{background:#efe9de;border:none;border-radius:999px;padding:7px 16px;font-size:13px;color:var(--gris)}
+.subtabs button.on{background:var(--tinta);color:#fff}
+.nota{font-size:12.5px;color:var(--muted);margin:8px 0}
+@media(max-width:640px){ .main{padding:14px 10px 40px} .topbar{gap:10px} .quien{display:none} }
