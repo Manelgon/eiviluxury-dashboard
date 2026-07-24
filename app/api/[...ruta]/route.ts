@@ -376,6 +376,11 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         });
       }
       if (metodo === "GET" && r1) {
+        // El rol médico solo abre la ficha de SUS pacientes asignados
+        if (u.rol === "medico") {
+          const ambitoP = await ambitoClinico(u);
+          if (!ambitoP || !(await puedeVerPaciente(ambitoP, Number(r1)))) return err("Este paciente no está asignado a ti", 403);
+        }
         const { data: paciente, error } = await db()
           .from("pacientes")
           .select("*")

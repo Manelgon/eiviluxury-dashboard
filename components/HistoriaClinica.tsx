@@ -21,11 +21,15 @@ interface Historia {
 
 export default function HistoriaClinica({ pacienteId, nombrePaciente }: { pacienteId: number; nombrePaciente?: string }) {
   const [h, setH] = useState<Historia | null>(null);
+  const [p, setP] = useState<any | null>(null); // ficha administrativa + citas
+  const [pestana, setPestana] = useState<"resumen" | "consultas" | "diagnosticos" | "documentos" | "ficha">("resumen");
   const [error, setError] = useState("");
   const [nueva, setNueva] = useState(false);
 
-  const cargar = () =>
+  const cargar = () => {
     api<Historia>(`historia?paciente_id=${pacienteId}`).then((d) => { setH(d); setError(""); }).catch((e) => setError(e.message));
+    api<any>(`pacientes/${pacienteId}`).then(setP).catch(() => setP(null));
+  };
   useEffect(() => { cargar(); }, [pacienteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) return <div className="error" style={{ marginTop: 10 }}>{error}</div>;
@@ -33,44 +37,162 @@ export default function HistoriaClinica({ pacienteId, nombrePaciente }: { pacien
 
   const constantesDe = (consultaId: number) => h.constantes.filter((c: any) => c.consulta_id === consultaId);
   const diagnosticosDe = (consultaId: number) => h.diagnosticos_consulta.filter((d: any) => d.consulta_id === consultaId);
+  const edad = p?.fecha_nacimiento ? Math.floor((Date.now() - new Date(p.fecha_nacimiento).getTime()) / 31_557_600_000) : null;
+  const nombre = nombrePaciente ?? (p ? [p.nombre, p.apellidos].filter(Boolean).join(" ") : `Paciente #${pacienteId}`);
+  const problemasActivos = h.diagnosticos.filter((d: any) => !d.fecha_resolucion && d.estado !== "descartado");
+  const citasFuturas = (p?.citas ?? []).filter((c: any) => new Date(c.inicio) > new Date() && ["pendiente", "confirmada"].includes(c.estado));
+  // Última constante registrada de cada tipo clave (las consultas vienen ordenadas desc)
+  const ultimaConstante = (codigo: string) => {
+    for (const c of h.consultas) {
+      const k = constantesDe(c.id).find((x: any) => x.constantes_catalogo?.codigo === codigo);
+      if (k) return `${k.valor} ${k.constantes_catalogo?.unidad ?? ""}`;
+    }
+    return null;
+  };
+
+  const Dato = ({ e, v }: { e: string; v: any }) => (
+    <div style={{ minWidth: 130 }}>
+      <label style={{ fontSize: 10.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>{e}</label>
+      <p style={{ margin: "2px 0 0", fontSize: 13.5 }}>{v ?? "—"}</p>
+    </div>
+  );
 
   return (
     <div style={{ marginTop: 6 }}>
+      {/* ═══ Cabecera del paciente (modelo SANIAN) ═══ */}
+      <div className="fila" style={{ marginBottom: 8, alignItems: "baseline" }}>
+        <h3 style={{ margin: 0 }}>{nombre}</h3>
+        <span className="nota" style={{ margin: 0 }}>
+          {edad != null ? `${edad} años · ` : ""}{p?.sexo ? `${p.sexo} · ` : ""}{p?.telefono ?? ""}
+          {p?.cip ? <> · CIP <code style={{ fontSize: 10.5 }}>{String(p.cip).slice(0, 8)}…</code></> : ""}
+        </span>
+        {p && (p.alta_completa
+          ? <span className="chip confirmada">alta completa</span>
+          : <span className="chip pendiente">⏳ alta pendiente</span>)}
+      </div>
       <Alergias pacienteId={pacienteId} alergias={h.alergias} onCambio={cargar} />
 
-      {/* Lista de problemas */}
-      <div className="card" style={{ marginTop: 12 }}>
-        <p className="nota" style={{ marginTop: 0 }}><b>Lista de problemas</b> (diagnósticos CIE-10 del paciente{h.ambito ? " · solo tus áreas" : ""})</p>
-        {h.diagnosticos.length === 0 && <p className="nota" style={{ margin: 0 }}>Sin diagnósticos registrados</p>}
-        {h.diagnosticos.map((d: any) => (
-          <div className="linea-cita" key={d.id}>
-            <b style={{ minWidth: 70 }}>{d.codigo}</b>
-            <span>{d.cie10?.descripcion ?? ""} <em>· {d.areas?.nombre ?? ""}</em></span>
-            <span className={`chip ${d.estado === "confirmado" ? "confirmada" : d.estado === "descartado" ? "cancelada" : "pendiente"}`}>
-              {d.estado} · {new Date(d.fecha_inicio).toLocaleDateString("es-ES")}
-              {d.fecha_resolucion ? ` → resuelto ${new Date(d.fecha_resolucion).toLocaleDateString("es-ES")}` : ""}
-            </span>
+      {/* ═══ Pestañas ═══ */}
+      <div className="subtabs" style={{ marginTop: 12 }}>
+        <button className={pestana === "resumen" ? "on" : ""} onClick={() => setPestana("resumen")}>Resumen</button>
+        <button className={pestana === "consultas" ? "on" : ""} onClick={() => setPestana("consultas")}>Consultas ({h.consultas.length})</button>
+        <button className={pestana === "diagnosticos" ? "on" : ""} onClick={() => setPestana("diagnosticos")}>Diagnósticos</button>
+        <button className={pestana === "documentos" ? "on" : ""} onClick={() => setPestana("documentos")}>Documentos</button>
+        <button className={pestana === "ficha" ? "on" : ""} onClick={() => setPestana("ficha")}>Ficha</button>
+      </div>
+
+      {/* ═══ RESUMEN GENERAL ═══ */}
+      {pestana === "resumen" && (
+        <>
+          <div className="card" style={{ marginBottom: 12 }}>
+            <div className="fila" style={{ flexWrap: "wrap", gap: 18, marginBottom: 0 }}>
+              <Dato e="Talla" v={ultimaConstante("ALTURA")} />
+              <Dato e="Peso" v={ultimaConstante("PESO")} />
+              <Dato e="IMC" v={ultimaConstante("IMC")} />
+              <Dato e="Toxina (última)" v={ultimaConstante("TOXINA_U")} />
+              <Dato e="Relleno (último)" v={ultimaConstante("RELLENO_ML")} />
+            </div>
           </div>
-        ))}
-      </div>
+          <div className="card" style={{ marginBottom: 12 }}>
+            <p className="nota" style={{ marginTop: 0 }}><b>Diagnósticos activos</b> ({problemasActivos.length})</p>
+            {problemasActivos.length === 0 && <p className="nota" style={{ margin: 0 }}>Ninguno</p>}
+            {problemasActivos.map((d: any) => (
+              <div className="linea-cita" key={d.id}>
+                <b style={{ minWidth: 70 }}>{d.codigo}</b>
+                <span>{d.cie10?.descripcion ?? ""} <em>· {d.areas?.nombre ?? ""}</em></span>
+                <span className={`chip ${d.estado === "confirmado" ? "confirmada" : "pendiente"}`}>{d.estado}</span>
+              </div>
+            ))}
+          </div>
+          <div className="card" style={{ marginBottom: 12 }}>
+            <p className="nota" style={{ marginTop: 0 }}><b>Próximas citas</b></p>
+            {citasFuturas.length === 0 && <p className="nota" style={{ margin: 0 }}>Sin citas próximas</p>}
+            {citasFuturas.map((c: any) => (
+              <div className="linea-cita" key={c.id}>
+                <span>{fmtFechaHora(c.inicio)} · {c.medicos?.nombre ?? ""}{c.tratamientos?.nombre ? ` · ${c.tratamientos.nombre}` : ""}</span>
+                <span className={`chip ${c.estado}`}>{c.estado}</span>
+              </div>
+            ))}
+          </div>
+          <div className="card">
+            <div className="fila" style={{ marginBottom: 6 }}>
+              <p className="nota" style={{ margin: 0 }}><b>Últimas consultas</b></p>
+              <div style={{ flex: 1 }} />
+              <button className="btn mini oro" onClick={() => setNueva(true)}>+ Nueva consulta</button>
+            </div>
+            {h.consultas.length === 0 && <p className="nota" style={{ margin: 0 }}>Sin consultas todavía</p>}
+            {h.consultas.slice(0, 3).map((c: any) => (
+              <div className="linea-cita" key={c.id} style={{ cursor: "pointer" }} onClick={() => setPestana("consultas")}>
+                <b style={{ minWidth: 120 }}>{fmtFechaHora(c.fecha)}</b>
+                <span>{c.motivo} <em>· {c.areas?.nombre ?? ""} · {c.medicos?.nombre ?? ""}</em></span>
+                <span className={`chip ${c.estado === "firmada" ? "confirmada" : "pendiente"}`}>{c.estado}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
-      <DocumentosPaciente pacienteId={pacienteId} />
+      {/* ═══ CONSULTAS (historial completo) ═══ */}
+      {pestana === "consultas" && (
+        <>
+          <div className="fila" style={{ marginBottom: 6 }}>
+            <div style={{ flex: 1 }} />
+            <button className="btn mini oro" onClick={() => setNueva(true)}>+ Nueva consulta</button>
+          </div>
+          {h.consultas.length === 0 && <p className="nota">Sin consultas todavía</p>}
+          {h.consultas.map((c: any) => (
+            <Consulta key={c.id} c={c} constantes={constantesDe(c.id)} diagnosticos={diagnosticosDe(c.id)} onCambio={cargar} />
+          ))}
+        </>
+      )}
 
-      {/* Consultas */}
-      <div className="fila" style={{ marginTop: 14, marginBottom: 6 }}>
-        <h3 style={{ margin: 0 }}>Consultas ({h.consultas.length})</h3>
-        <div style={{ flex: 1 }} />
-        <button className="btn mini oro" onClick={() => setNueva(true)}>+ Nueva consulta</button>
-      </div>
-      {h.consultas.length === 0 && <p className="nota">Sin consultas todavía</p>}
-      {h.consultas.map((c: any) => (
-        <Consulta key={c.id} c={c} constantes={constantesDe(c.id)} diagnosticos={diagnosticosDe(c.id)} onCambio={cargar} />
-      ))}
+      {/* ═══ DIAGNÓSTICOS (lista de problemas completa) ═══ */}
+      {pestana === "diagnosticos" && (
+        <div className="card">
+          <p className="nota" style={{ marginTop: 0 }}><b>Lista de problemas</b> (diagnósticos CIE-10 del paciente{h.ambito ? " · solo tus áreas" : ""})</p>
+          {h.diagnosticos.length === 0 && <p className="nota" style={{ margin: 0 }}>Sin diagnósticos registrados</p>}
+          {h.diagnosticos.map((d: any) => (
+            <div className="linea-cita" key={d.id}>
+              <b style={{ minWidth: 70 }}>{d.codigo}</b>
+              <span>{d.cie10?.descripcion ?? ""} <em>· {d.areas?.nombre ?? ""}</em></span>
+              <span className={`chip ${d.estado === "confirmado" ? "confirmada" : d.estado === "descartado" ? "cancelada" : "pendiente"}`}>
+                {d.estado} · {new Date(d.fecha_inicio).toLocaleDateString("es-ES")}
+                {d.fecha_resolucion ? ` → resuelto ${new Date(d.fecha_resolucion).toLocaleDateString("es-ES")}` : ""}
+              </span>
+            </div>
+          ))}
+          <p className="nota" style={{ marginBottom: 0 }}>Los diagnósticos se añaden y cambian de estado desde las consultas (la lista se sincroniza sola).</p>
+        </div>
+      )}
+
+      {/* ═══ DOCUMENTOS ═══ */}
+      {pestana === "documentos" && <DocumentosPaciente pacienteId={pacienteId} />}
+
+      {/* ═══ FICHA (datos administrativos, solo lectura para el médico) ═══ */}
+      {pestana === "ficha" && (
+        <div className="card">
+          {p ? (
+            <div className="fila" style={{ flexWrap: "wrap", gap: 18, marginBottom: 0 }}>
+              <Dato e="Nombre" v={[p.nombre, p.apellidos].filter(Boolean).join(" ")} />
+              <Dato e="Fecha de nacimiento" v={p.fecha_nacimiento ? new Date(p.fecha_nacimiento).toLocaleDateString("es-ES") : null} />
+              <Dato e="Sexo" v={p.sexo} />
+              <Dato e="DNI / NIE" v={p.dni} />
+              <Dato e="Teléfono (WhatsApp)" v={p.telefono} />
+              <Dato e="Teléfono contacto" v={p.telefono_contacto} />
+              <Dato e="Email" v={p.email} />
+              <Dato e="Dirección" v={p.direccion} />
+              <Dato e="CIP interno" v={p.cip} />
+              <Dato e="Alta" v={p.alta_completa ? "completa" : "⏳ pendiente"} />
+            </div>
+          ) : <p className="nota" style={{ margin: 0 }}>No tienes acceso a la ficha administrativa de este paciente.</p>}
+          <p className="nota" style={{ marginBottom: 0 }}>Los datos administrativos los gestiona recepción/dirección desde Pacientes.</p>
+        </div>
+      )}
 
       {nueva && (
-        <NuevaConsulta pacienteId={pacienteId} nombrePaciente={nombrePaciente} ambito={h.ambito}
+        <NuevaConsulta pacienteId={pacienteId} nombrePaciente={nombre} ambito={h.ambito}
           problemas={h.diagnosticos} alergias={h.alergias}
-          onCerrar={(guardada) => { setNueva(false); if (guardada) cargar(); }} />
+          onCerrar={(guardada) => { setNueva(false); if (guardada) { cargar(); setPestana("consultas"); } }} />
       )}
     </div>
   );

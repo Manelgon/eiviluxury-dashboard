@@ -128,16 +128,31 @@ function NuevoPaciente({ onCerrar }: { onCerrar: (ok: boolean) => void }) {
   const [consent, setConsent] = useState(false);
   const [consentClinicos, setConsentClinicos] = useState(false);
   const [publicidad, setPublicidad] = useState<null | boolean>(null);
+  const [areas, setAreas] = useState<any[]>([]);
+  const [medicos, setMedicos] = useState<any[]>([]);
+  const [areaId, setAreaId] = useState<number | "">("");
+  const [medicoId, setMedicoId] = useState<number | "">("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    api<any[]>("areas").then((a) => setAreas(a.filter((x: any) => x.activo))).catch(() => {});
+    api<any[]>("medicos").then((m) => setMedicos(m.filter((x: any) => x.activo && x.tipo !== "enfermera"))).catch(() => {});
+  }, []);
+  const medicosDelArea = medicos.filter((m: any) => (m.medico_areas ?? []).some((ma: any) => ma.area_id === areaId));
+  // El alta en recepción se hace COMPLETA: los 4 datos clave + médico de referencia son obligatorios
+  const fichaCompleta = Boolean(f.telefono.trim() && f.nombre.trim() && f.apellidos.trim() && f.dni.trim() && f.fecha_nacimiento && areaId && medicoId);
 
   async function crear() {
     setError("");
     try {
-      const r = await api<{ alta_completa: boolean }>("pacientes", {
+      const r = await api<{ id: number; alta_completa: boolean }>("pacientes", {
         method: "POST",
         body: { ...f, sexo: f.sexo || null, fecha_nacimiento: f.fecha_nacimiento || null, consentimiento: consent, consentimiento_clinicos: consentClinicos, ...(publicidad !== null ? { acepta_publicidad: publicidad } : {}) },
       });
-      alert(r.alta_completa ? "Paciente creado con alta completa ✓" : "Paciente creado. Le faltan datos: quedará como ⏳ alta pendiente.");
+      // Médico de referencia elegido en el alta → asignación directa
+      if (areaId && medicoId) {
+        await api("asignaciones", { method: "POST", body: { paciente_id: r.id, area_id: areaId, medico_id: medicoId } }).catch((e: any) => alert(`Paciente creado, pero la asignación falló: ${e.message}`));
+      }
       onCerrar(true);
     } catch (e: any) { setError(e.message); }
   }
@@ -152,11 +167,11 @@ function NuevoPaciente({ onCerrar }: { onCerrar: (ok: boolean) => void }) {
         </div>
         <div className="campo" style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}><label>Nombre *</label><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} /></div>
-          <div style={{ flex: 1 }}><label>Apellidos</label><input value={f.apellidos} onChange={(e) => setF({ ...f, apellidos: e.target.value })} /></div>
+          <div style={{ flex: 1 }}><label>Apellidos *</label><input value={f.apellidos} onChange={(e) => setF({ ...f, apellidos: e.target.value })} /></div>
         </div>
         <div className="campo" style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}><label>DNI / NIE</label><input value={f.dni} onChange={(e) => setF({ ...f, dni: e.target.value })} /></div>
-          <div style={{ flex: 1 }}><label>Fecha de nacimiento</label><input type="date" value={f.fecha_nacimiento} onChange={(e) => setF({ ...f, fecha_nacimiento: e.target.value })} /></div>
+          <div style={{ flex: 1 }}><label>DNI / NIE *</label><input value={f.dni} onChange={(e) => setF({ ...f, dni: e.target.value })} /></div>
+          <div style={{ flex: 1 }}><label>Fecha de nacimiento *</label><input type="date" value={f.fecha_nacimiento} onChange={(e) => setF({ ...f, fecha_nacimiento: e.target.value })} /></div>
           <div style={{ flex: 1 }}><label>Sexo</label>
             <select value={f.sexo} onChange={(e) => setF({ ...f, sexo: e.target.value })}>
               <option value="">—</option><option value="mujer">Mujer</option><option value="hombre">Hombre</option><option value="otro">Otro</option>
@@ -167,7 +182,21 @@ function NuevoPaciente({ onCerrar }: { onCerrar: (ok: boolean) => void }) {
           <div style={{ flex: 1 }}><label>Email</label><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
           <div style={{ flex: 2 }}><label>Dirección</label><input value={f.direccion} onChange={(e) => setF({ ...f, direccion: e.target.value })} /></div>
         </div>
-        <p className="nota" style={{ margin: "4px 0 8px" }}>Con nombre, apellidos, DNI y fecha de nacimiento el alta queda completa; si falta algo, se crea como ⏳ pendiente y se completa cuando venga.</p>
+        <div className="campo" style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}><label>Área *</label>
+            <select value={areaId} onChange={(e) => { setAreaId(e.target.value ? Number(e.target.value) : ""); setMedicoId(""); }}>
+              <option value="">— Elegir —</option>
+              {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: 1 }}><label>Médico de referencia *</label>
+            <select value={medicoId} onChange={(e) => setMedicoId(e.target.value ? Number(e.target.value) : "")} disabled={!areaId}>
+              <option value="">— Elegir —</option>
+              {medicosDelArea.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+            </select>
+          </div>
+        </div>
+        <p className="nota" style={{ margin: "4px 0 8px" }}>El alta en recepción se hace completa: todos los campos con * son obligatorios — un paciente no puede existir sin su médico de referencia (queda asignado al crearlo).</p>
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 6 }}>
           <input type="checkbox" style={{ width: "auto" }} checked={consent} onChange={(e) => setConsent(e.target.checked)} />
           El paciente ha dado EN PERSONA su consentimiento al tratamiento de datos personales *
@@ -183,7 +212,7 @@ function NuevoPaciente({ onCerrar }: { onCerrar: (ok: boolean) => void }) {
         {error && <div className="error">{error}</div>}
         <div className="fila" style={{ justifyContent: "flex-end" }}>
           <button className="btn suave" onClick={() => onCerrar(false)}>Cerrar</button>
-          <button className="btn oro" disabled={!consent || !consentClinicos || !f.telefono.trim() || !f.nombre.trim()} onClick={crear}>Crear paciente</button>
+          <button className="btn oro" disabled={!consent || !consentClinicos || !fichaCompleta} onClick={crear}>Crear paciente</button>
         </div>
       </div>
     </div>
