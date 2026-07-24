@@ -57,10 +57,17 @@ function ListaClientes() {
                   <td colSpan={5}>
                     <div className="acciones-cliente">
                       {papelera ? (
-                        <button className="btn mini oro" onClick={async () => {
-                          await api(`clientes/${c.id}`, { method: "PATCH", body: { restaurar: true } });
-                          cargar();
-                        }}>♻️ Restaurar cliente</button>
+                        <>
+                          <button className="btn mini oro" onClick={async () => {
+                            await api(`clientes/${c.id}`, { method: "PATCH", body: { restaurar: true } });
+                            cargar();
+                          }}>♻️ Restaurar cliente</button>
+                          <button className="btn mini suave" style={{ color: "var(--rojo)" }} onClick={async () => {
+                            if (!confirm("⚠️ ANONIMIZAR es IRREVERSIBLE: se borran nombre, email y teléfonos para siempre (se conservan citas y consentimientos como registro). ¿Continuar?")) return;
+                            try { await api(`clientes/${c.id}`, { method: "PATCH", body: { anonimizar: true } }); cargar(); }
+                            catch (e: any) { alert(e.message); }
+                          }}>⚠️ Anonimizar (definitivo)</button>
+                        </>
                       ) : (
                         <>
                           <button className="btn mini" onClick={() => api(`clientes/${c.id}`).then(setFicha)}>📋 Ver ficha</button>

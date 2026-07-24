@@ -35,6 +35,21 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     return json({ token: data.session.access_token, nombre: fila.nombre, rol: fila.rol });
   }
 
+  // ---------- Solicitud pública de derechos RGPD (sin token) ----------
+  if (r0 === "derechos-publico" && metodo === "POST") {
+    const { nombre, contacto, tipo_derecho, descripcion, acepta } = body;
+    if (!contacto || !tipo_derecho) return err("Faltan el contacto o el tipo de derecho");
+    if (acepta !== true) return err("Debes aceptar el tratamiento de tu solicitud");
+    const validos = ["acceso", "rectificacion", "supresion", "portabilidad", "oposicion", "limitacion"];
+    if (!validos.includes(tipo_derecho)) return err("Tipo de derecho no válido");
+    const { error } = await db().from("derechos_arco").insert({
+      nombre: nombre ?? null, contacto, tipo_derecho, descripcion: descripcion ?? null, canal: "web",
+    });
+    if (error) return err(error.message, 500);
+    void auditar(null, "rgpd.derecho_arco.solicitud", { tipo: "derecho_arco", label: `${tipo_derecho} · ${contacto}` }, { canal: "web" });
+    return json({ ok: true });
+  }
+
   // ---------- Autenticación ----------
   const u = await usuarioDesdeRequest(req);
   if (!u) return err("No autorizado", 401);
@@ -180,6 +195,18 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           void auditar(u, "cliente.eliminar", { tipo: "cliente", id: r1 });
           return json({ ok: true });
         }
+        // Anonimización irreversible (derecho de supresión con obligación de conservar lo operativo)
+        if (body.anonimizar === true) {
+          if (!puede(u, "usuarios")) return err("Solo admin o dirección pueden anonimizar", 403);
+          const { error } = await db().from("clientes").update({
+            nombre: "[anonimizado]", apellidos: null, email: null,
+            telefono_contacto: null, telefono: `anon-${r1}`,
+            activo: false, deleted_at: new Date().toISOString(),
+          }).eq("id", Number(r1));
+          if (error) return err(error.message, 500);
+          void auditar(u, "cliente.anonimizar", { tipo: "cliente", id: r1 });
+          return json({ ok: true });
+        }
         if (body.restaurar === true) {
           const { error } = await db().from("clientes").update({ deleted_at: null }).eq("id", Number(r1));
           if (error) return err(error.message, 500);
@@ -224,6 +251,33 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         const { error } = await db().from("consentimientos").update({ revocado_at: new Date().toISOString() }).eq("id", Number(r1));
         if (error) return err(error.message, 500);
         void auditar(u, "consentimiento.revocar", { tipo: "consentimiento", id: r1 });
+        return json({ ok: true });
+      }
+      return err("Método no soportado", 405);
+    }
+
+    // ---------- Derechos ARCO (gestión) ----------
+    case "derechos": {
+      if (!puede(u, "gestion")) return err("Sin permiso", 403);
+      if (metodo === "GET") {
+        const { data, error } = await db()
+          .from("derechos_arco")
+          .select("id, cliente_id, nombre, contacto, tipo_derecho, descripcion, canal, estado, notas_admin, resolucion_at, created_at")
+          .order("created_at", { ascending: false })
+          .limit(200);
+        return error ? err(error.message, 500) : json(data);
+      }
+      if (metodo === "PATCH" && r1) {
+        const cambios: Record<string, unknown> = {};
+        if (body.estado && ["pendiente", "en_proceso", "resuelta"].includes(body.estado)) {
+          cambios.estado = body.estado;
+          if (body.estado === "resuelta") cambios.resolucion_at = new Date().toISOString();
+        }
+        if ("notas_admin" in body) cambios.notas_admin = body.notas_admin;
+        if (Object.keys(cambios).length === 0) return err("Nada que actualizar");
+        const { error } = await db().from("derechos_arco").update(cambios).eq("id", Number(r1));
+        if (error) return err(error.message, 500);
+        void auditar(u, "rgpd.derecho_arco.cambiar_estado", { tipo: "derecho_arco", id: r1 }, cambios);
         return json({ ok: true });
       }
       return err("Método no soportado", 405);

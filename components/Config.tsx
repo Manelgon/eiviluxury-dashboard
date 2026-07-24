@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import Logs from "./Logs";
+import Derechos from "./Derechos";
 
 const DIAS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -16,6 +17,7 @@ export default function Config({ sub, setSub, rol }: { sub: string; setSub: (s: 
         <button className={sub === "bloqueos" ? "on" : ""} onClick={() => setSub("bloqueos")}>Vacaciones y bloqueos</button>
         <button className={sub === "areas" ? "on" : ""} onClick={() => setSub("areas")}>Áreas</button>
         {puedeUsuarios && <button className={sub === "usuarios" ? "on" : ""} onClick={() => setSub("usuarios")}>Usuarios y permisos</button>}
+        <button className={sub === "derechos" ? "on" : ""} onClick={() => setSub("derechos")}>Derechos RGPD</button>
         {puedeUsuarios && <button className={sub === "logs" ? "on" : ""} onClick={() => setSub("logs")}>Logs</button>}
       </div>
       {sub === "tratamientos" && <Tratamientos />}
@@ -24,6 +26,7 @@ export default function Config({ sub, setSub, rol }: { sub: string; setSub: (s: 
       {sub === "bloqueos" && <Bloqueos />}
       {sub === "areas" && <Areas />}
       {sub === "usuarios" && puedeUsuarios && <Usuarios rolActual={rol} />}
+      {sub === "derechos" && <Derechos />}
       {sub === "logs" && puedeUsuarios && <Logs />}
     </>
   );

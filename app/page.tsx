@@ -53,6 +53,7 @@ export default function Page() {
                     { id: "horarios", t: "Horarios" },
                     { id: "bloqueos", t: "Vacaciones y bloqueos" },
                     { id: "areas", t: "Áreas de la clínica" },
+                    { id: "derechos", t: "Derechos RGPD" },
                     ...(me.rol === "admin" || me.rol === "direccion"
                       ? [{ id: "usuarios", t: "Usuarios y permisos" }, { id: "logs", t: "Logs de actividad" }]
                       : []),
