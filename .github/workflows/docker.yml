@@ -1,4 +1,4 @@
-name: Construir imagen del bot
+name: Construir imagen del panel
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
       - name: Construir y publicar
         uses: docker/build-push-action@v6
         with:
-          context: ./bot
+          context: .
           push: true
           tags: |
             ${{ steps.img.outputs.name }}:latest
