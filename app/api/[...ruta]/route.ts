@@ -9,6 +9,37 @@ export const dynamic = "force-dynamic";
 const json = (data: unknown, status = 200) => NextResponse.json(data, { status });
 const err = (mensaje: string, status = 400) => json({ error: mensaje }, status);
 
+/**
+ * Ámbito clínico del usuario:
+ *  - admin/direccion → acceso total (areas = null)
+ *  - medico → SOLO sus áreas y SOLO pacientes con asignación activa suya
+ *  - recepcion/enfermera → SIN acceso a datos clínicos
+ */
+async function ambitoClinico(u: UsuarioPanel): Promise<{ total: boolean; areas: number[]; medicoId: number | null } | null> {
+  if (u.rol === "admin" || u.rol === "direccion") return { total: true, areas: [], medicoId: null };
+  if (u.rol === "medico" && u.medico_id) {
+    const { data } = await db().from("medico_areas").select("area_id").eq("medico_id", u.medico_id);
+    return { total: false, areas: (data ?? []).map((a: any) => a.area_id), medicoId: u.medico_id };
+  }
+  return null;
+}
+
+/** ¿Puede este ámbito ver a este paciente? (médico: asignación activa) */
+async function puedeVerPaciente(ambito: { total: boolean; medicoId: number | null }, pacienteId: number): Promise<boolean> {
+  if (ambito.total) return true;
+  const { data } = await db()
+    .from("paciente_medico_area").select("id")
+    .eq("paciente_id", pacienteId).eq("medico_id", ambito.medicoId).eq("activo", true).limit(1);
+  return (data?.length ?? 0) > 0;
+}
+
+/** Registro RGPD de lecturas de historia clínica. */
+async function logAccesoHistoria(u: UsuarioPanel, pacienteId: number, recurso: string, detalles?: Record<string, unknown>) {
+  try {
+    await db().from("accesos_historia").insert({ user_email: u.email, paciente_id: pacienteId, recurso, detalles: detalles ?? null });
+  } catch (e) { console.error("logAccesoHistoria falló:", e); }
+}
+
 async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> {
   const [r0, r1, r2] = ruta;
   const metodo = req.method;
@@ -63,7 +94,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     case "medicos": {
       const { data, error } = await db()
         .from("medicos")
-        .select("id, nombre, especialidad, activo")
+        .select("id, nombre, especialidad, activo, tipo, medico_areas(area_id)")
         .order("nombre");
       if (error) return err(error.message, 500);
       return json(data);
@@ -625,6 +656,298 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         const { error } = await db().from("bloqueos").delete().eq("id", Number(r1));
         if (!error) void auditar(u, "config.bloqueo.eliminar", { tipo: "bloqueo", id: r1 }, { eliminado: fila });
         return error ? err(error.message, 500) : json({ ok: true });
+      }
+      return err("Método no soportado", 405);
+    }
+
+    // ================= HISTORIA CLÍNICA =================
+
+    // ---------- Buscador CIE-10 ----------
+    case "cie10": {
+      const ambito = await ambitoClinico(u);
+      if (!ambito) return err("Sin acceso a datos clínicos", 403);
+      const busca = q.get("q")?.trim();
+      if (!busca || busca.length < 2) return json([]);
+      // Por código exacto/prefijo o por texto en la descripción
+      const esCodigo = /^[A-Za-z]\d/.test(busca);
+      let cq = db().from("cie10").select("codigo, descripcion").eq("nodo_final", "1").limit(20);
+      cq = esCodigo
+        ? cq.ilike("codigo", `${busca}%`)
+        : cq.ilike("descripcion", `%${busca}%`);
+      const { data, error } = await cq;
+      if (error) return err(error.message, 500);
+      return json(data);
+    }
+
+    // ---------- Asignación paciente ↔ médico por área ----------
+    case "asignaciones": {
+      if (metodo === "GET") {
+        const pacienteId = q.get("paciente_id");
+        if (pacienteId) {
+          if (!puede(u, "gestion") && u.rol !== "medico") return err("Sin permiso", 403);
+          const { data, error } = await db()
+            .from("paciente_medico_area")
+            .select("id, medico_id, area_id, activo, created_at, medicos(nombre), areas(nombre)")
+            .eq("paciente_id", Number(pacienteId))
+            .order("created_at", { ascending: false });
+          if (error) return err(error.message, 500);
+          return json(data);
+        }
+        // Mis pacientes (rol médico): pacientes con asignación activa a este médico
+        if (q.get("mias") === "1") {
+          const ambito = await ambitoClinico(u);
+          if (!ambito || ambito.total) return err("Solo para el rol médico", 400);
+          const { data, error } = await db()
+            .from("paciente_medico_area")
+            .select("paciente_id, area_id, areas(nombre), pacientes(id, nombre, apellidos, telefono, activo)")
+            .eq("medico_id", ambito.medicoId).eq("activo", true)
+            .order("created_at", { ascending: false });
+          if (error) return err(error.message, 500);
+          return json(data);
+        }
+        return err("Falta paciente_id o mias=1");
+      }
+      if (metodo === "POST") {
+        if (!puede(u, "gestion")) return err("Sin permiso", 403);
+        const { paciente_id, medico_id, area_id } = body;
+        if (!paciente_id || !medico_id || !area_id) return err("Faltan paciente, médico o área");
+        const { data, error } = await db()
+          .from("paciente_medico_area")
+          .insert({ paciente_id, medico_id, area_id })
+          .select("id").single();
+        if (error) {
+          if (error.code === "23505")
+            return err("Este paciente ya tiene un médico activo en esa área. Desactiva primero la asignación anterior.");
+          if (error.code === "23503")
+            return err("Ese médico no pertenece al área seleccionada.");
+          return err(error.message, 500);
+        }
+        void auditar(u, "asignacion.crear", { tipo: "asignacion", id: String(data.id) },
+          { paciente_id, medico_id, area_id });
+        return json({ ok: true, id: data.id });
+      }
+      if (metodo === "PATCH" && r1) {
+        if (!puede(u, "gestion")) return err("Sin permiso", 403);
+        const { data: actual } = await db()
+          .from("paciente_medico_area").select("paciente_id, medico_id, area_id, activo")
+          .eq("id", Number(r1)).maybeSingle();
+        if (!actual) return err("Asignación no encontrada", 404);
+        const activo = body.activo === true;
+        const { error } = await db().from("paciente_medico_area").update({ activo }).eq("id", Number(r1));
+        if (error) {
+          if (error.code === "23505")
+            return err("Ya hay otro médico activo en esa área para este paciente.");
+          return err(error.message, 500);
+        }
+        void auditar(u, activo ? "asignacion.reactivar" : "asignacion.desactivar",
+          { tipo: "asignacion", id: r1 }, { ...actual, activo_nuevo: activo });
+        return json({ ok: true });
+      }
+      return err("Método no soportado", 405);
+    }
+
+    // ---------- Historia clínica del paciente ----------
+    case "historia": {
+      const ambito = await ambitoClinico(u);
+      if (!ambito) return err("Sin acceso a datos clínicos", 403);
+      const pacienteId = Number(q.get("paciente_id"));
+      if (!pacienteId) return err("Falta paciente_id");
+      if (!(await puedeVerPaciente(ambito, pacienteId))) return err("Este paciente no está asignado a ti", 403);
+
+      let consQ = db()
+        .from("consultas")
+        .select("id, fecha, motivo, exploracion, plan, tratamiento, notas, estado, version_number, editada, editada_at, editado_por, area_id, medico_id, cita_id, medicos(nombre), areas(nombre)")
+        .eq("paciente_id", pacienteId).order("fecha", { ascending: false }).limit(200);
+      let diagQ = db()
+        .from("paciente_diagnosticos")
+        .select("id, codigo, estado, fecha_inicio, fecha_resolucion, notas, area_id, areas(nombre), cie10(descripcion)")
+        .eq("paciente_id", pacienteId).order("fecha_inicio", { ascending: false });
+      // El médico solo ve consultas y diagnósticos de SUS áreas
+      if (!ambito.total) {
+        consQ = consQ.in("area_id", ambito.areas.length ? ambito.areas : [-1]);
+        diagQ = diagQ.in("area_id", ambito.areas.length ? ambito.areas : [-1]);
+      }
+      const [{ data: consultas, error: e1 }, { data: diagnosticos, error: e2 }, { data: alergias, error: e3 }] =
+        await Promise.all([
+          consQ,
+          diagQ,
+          // Alergias TRANSVERSALES: siempre visibles (seguridad clínica)
+          db().from("paciente_alergias")
+            .select("id, estado, notas, created_at, alergias_catalogo(codigo, descripcion)")
+            .eq("paciente_id", pacienteId).order("created_at"),
+        ]);
+      if (e1 || e2 || e3) return err((e1 ?? e2 ?? e3)!.message, 500);
+
+      // Constantes de las consultas visibles
+      const idsConsultas = (consultas ?? []).map((c: any) => c.id);
+      const { data: constantes } = idsConsultas.length
+        ? await db().from("consulta_constantes")
+            .select("consulta_id, valor, notas, constantes_catalogo(codigo, nombre, unidad)")
+            .in("consulta_id", idsConsultas)
+        : { data: [] };
+      const { data: diagConsulta } = idsConsultas.length
+        ? await db().from("consulta_diagnosticos")
+            .select("consulta_id, codigo, estado, notas, cie10(descripcion)")
+            .in("consulta_id", idsConsultas)
+        : { data: [] };
+
+      void logAccesoHistoria(u, pacienteId, "historia", {
+        consultas: (consultas ?? []).length,
+        ambito: ambito.total ? "total" : `areas:${ambito.areas.join(",")}`,
+      });
+      return json({
+        consultas: consultas ?? [],
+        diagnosticos: diagnosticos ?? [],
+        alergias: alergias ?? [],
+        constantes: constantes ?? [],
+        diagnosticos_consulta: diagConsulta ?? [],
+        ambito: ambito.total ? null : ambito.areas,
+      });
+    }
+
+    // ---------- Consultas clínicas ----------
+    case "consultas": {
+      const ambito = await ambitoClinico(u);
+      if (!ambito) return err("Sin acceso a datos clínicos", 403);
+
+      // Versiones anteriores de una consulta (histórico inmutable)
+      if (metodo === "GET" && r1 && r2 === "versiones") {
+        const { data: consulta } = await db().from("consultas")
+          .select("paciente_id, area_id").eq("id", Number(r1)).maybeSingle();
+        if (!consulta) return err("Consulta no encontrada", 404);
+        if (!ambito.total && !ambito.areas.includes(consulta.area_id)) return err("Fuera de tu área", 403);
+        if (!(await puedeVerPaciente(ambito, consulta.paciente_id))) return err("Este paciente no está asignado a ti", 403);
+        const { data, error } = await db().from("consultas_versiones")
+          .select("version_number, motivo, exploracion, plan, tratamiento, notas, editado_por, motivo_edicion, created_at")
+          .eq("consulta_id", Number(r1)).order("version_number", { ascending: false });
+        if (error) return err(error.message, 500);
+        void logAccesoHistoria(u, consulta.paciente_id, `consulta:${r1}:versiones`);
+        return json(data);
+      }
+
+      if (metodo === "POST") {
+        const { paciente_id, area_id, motivo, exploracion, plan, tratamiento, notas, cita_id, estado, diagnosticos, constantes } = body;
+        if (!paciente_id || !area_id || !motivo?.trim()) return err("Faltan paciente, área o motivo");
+        let medicoId = body.medico_id;
+        if (!ambito.total) {
+          // El médico firma con su propia identidad y solo en sus áreas / sus pacientes
+          medicoId = ambito.medicoId;
+          if (!ambito.areas.includes(Number(area_id))) return err("No perteneces a esa área", 403);
+          if (!(await puedeVerPaciente(ambito, Number(paciente_id)))) return err("Este paciente no está asignado a ti", 403);
+        }
+        if (!medicoId) return err("Falta el médico");
+        const { data: creada, error } = await db().from("consultas").insert({
+          paciente_id, medico_id: medicoId, area_id, cita_id: cita_id ?? null,
+          motivo: motivo.trim(), exploracion: exploracion ?? null, plan: plan ?? null,
+          tratamiento: tratamiento ?? null, notas: notas ?? null,
+          estado: estado === "firmada" ? "firmada" : "borrador",
+        }).select("id").single();
+        if (error) return err(error.message, 500);
+
+        // Diagnósticos CIE-10 de la consulta (el trigger sincroniza la lista de problemas)
+        for (const d of Array.isArray(diagnosticos) ? diagnosticos : []) {
+          if (!d?.codigo) continue;
+          const { error: eD } = await db().from("consulta_diagnosticos").insert({
+            consulta_id: creada.id, codigo: d.codigo, paciente_id, medico_id: medicoId, area_id,
+            estado: ["sospecha", "confirmado", "descartado"].includes(d.estado) ? d.estado : "sospecha",
+            notas: d.notas ?? null,
+          });
+          if (eD) console.error("diagnóstico no guardado:", d.codigo, eD.message);
+        }
+        // Constantes clínicas
+        for (const c of Array.isArray(constantes) ? constantes : []) {
+          if (!c?.constante_id || c.valor === undefined || c.valor === null || c.valor === "") continue;
+          await db().from("consulta_constantes").insert({
+            consulta_id: creada.id, constante_id: c.constante_id, paciente_id, valor: Number(c.valor), notas: c.notas ?? null,
+          });
+        }
+        void auditar(u, "consulta.crear", { tipo: "consulta", id: String(creada.id) },
+          { paciente_id, medico_id: medicoId, area_id, motivo: motivo.trim(), estado: estado ?? "borrador",
+            diagnosticos: (diagnosticos ?? []).map((d: any) => d.codigo) });
+        void logAccesoHistoria(u, Number(paciente_id), `consulta:${creada.id}:crear`);
+        return json({ ok: true, id: creada.id });
+      }
+
+      if (metodo === "PATCH" && r1) {
+        const { data: actual } = await db().from("consultas")
+          .select("paciente_id, medico_id, area_id, estado, version_number").eq("id", Number(r1)).maybeSingle();
+        if (!actual) return err("Consulta no encontrada", 404);
+        if (!ambito.total) {
+          if (actual.medico_id !== ambito.medicoId) return err("Solo puedes editar tus propias consultas", 403);
+        }
+        const cambios: Record<string, unknown> = {};
+        for (const k of ["motivo", "exploracion", "plan", "tratamiento", "notas"]) if (k in body) cambios[k] = body[k];
+        const cambiaContenido = Object.keys(cambios).length > 0;
+        if (body.estado === "firmada") cambios.estado = "firmada";
+        if (cambiaContenido) {
+          if (!body.motivo_edicion?.trim())
+            return err("Modificar una consulta clínica requiere indicar el motivo de la edición");
+          cambios.motivo_edicion = body.motivo_edicion.trim();
+          cambios.editado_por = u.email;
+        }
+        if (!Object.keys(cambios).length) return err("Nada que actualizar");
+        const { error } = await db().from("consultas").update(cambios).eq("id", Number(r1));
+        if (error) {
+          // La excepción del trigger de versionado llega como texto legible
+          return err(error.message.includes("motivo de la edicion")
+            ? "Modificar una consulta clínica requiere indicar el motivo de la edición"
+            : error.message, 400);
+        }
+        void auditar(u, body.estado === "firmada" && !cambiaContenido ? "consulta.firmar" : "consulta.editar",
+          { tipo: "consulta", id: r1 },
+          { paciente_id: actual.paciente_id, cambios, motivo_edicion: body.motivo_edicion ?? null, version_anterior: actual.version_number });
+        return json({ ok: true });
+      }
+      return err("Método no soportado", 405);
+    }
+
+    // ---------- Catálogo de constantes clínicas ----------
+    case "constantes-catalogo": {
+      const { data, error } = await db().from("constantes_catalogo").select("id, codigo, nombre, unidad").order("id");
+      if (error) return err(error.message, 500);
+      return json(data);
+    }
+
+    // ---------- Alergias (transversales) ----------
+    case "alergias": {
+      if (metodo === "GET" && r1 === "catalogo") {
+        const { data, error } = await db().from("alergias_catalogo").select("id, codigo, descripcion").order("descripcion");
+        if (error) return err(error.message, 500);
+        return json(data);
+      }
+      const ambito = await ambitoClinico(u);
+      if (!ambito) return err("Sin acceso a datos clínicos", 403);
+      if (metodo === "POST") {
+        const { paciente_id, alergia_id, estado, notas } = body;
+        if (!paciente_id || !alergia_id) return err("Faltan paciente o alergia");
+        if (!(await puedeVerPaciente(ambito, Number(paciente_id)))) return err("Este paciente no está asignado a ti", 403);
+        const { data, error } = await db().from("paciente_alergias").insert({
+          paciente_id, alergia_id,
+          estado: ["pendiente", "confirmada", "descartada"].includes(estado) ? estado : "pendiente",
+          notas: notas ?? null, medico_id: ambito.medicoId,
+        }).select("id").single();
+        if (error) {
+          if (error.code === "23505") return err("Esa alergia ya está registrada para este paciente.");
+          return err(error.message, 500);
+        }
+        void auditar(u, "alergia.registrar", { tipo: "paciente", id: String(paciente_id) },
+          { alergia_id, estado: estado ?? "pendiente", notas: notas ?? null });
+        return json({ ok: true, id: data.id });
+      }
+      if (metodo === "PATCH" && r1) {
+        const { data: actual } = await db().from("paciente_alergias")
+          .select("paciente_id, estado, notas").eq("id", Number(r1)).maybeSingle();
+        if (!actual) return err("Alergia no encontrada", 404);
+        if (!(await puedeVerPaciente(ambito, actual.paciente_id))) return err("Este paciente no está asignado a ti", 403);
+        const cambios: Record<string, unknown> = {};
+        if ("estado" in body && ["pendiente", "confirmada", "descartada"].includes(body.estado)) cambios.estado = body.estado;
+        if ("notas" in body) cambios.notas = body.notas;
+        if (!Object.keys(cambios).length) return err("Nada que actualizar");
+        const { error } = await db().from("paciente_alergias").update(cambios).eq("id", Number(r1));
+        if (error) return err(error.message, 500);
+        void auditar(u, "alergia.editar", { tipo: "paciente", id: String(actual.paciente_id) },
+          { antes: { estado: actual.estado, notas: actual.notas }, despues: cambios });
+        return json({ ok: true });
       }
       return err("Método no soportado", 405);
     }

@@ -1,8 +1,9 @@
 "use client";
 import { Fragment, useEffect, useState } from "react";
 import { api, fmtFechaHora } from "./api";
+import HistoriaClinica, { Asignaciones } from "./HistoriaClinica";
 
-export default function Pacientes() {
+export default function Pacientes({ rol }: { rol?: string }) {
   const [sub, setSub] = useState<"pacientes" | "escalados">("pacientes");
   return (
     <>
@@ -10,12 +11,12 @@ export default function Pacientes() {
         <button className={sub === "pacientes" ? "on" : ""} onClick={() => setSub("pacientes")}>Pacientes</button>
         <button className={sub === "escalados" ? "on" : ""} onClick={() => setSub("escalados")}>Conversaciones escaladas</button>
       </div>
-      {sub === "pacientes" ? <ListaPacientes /> : <Escalados />}
+      {sub === "pacientes" ? <ListaPacientes rol={rol} /> : <Escalados />}
     </>
   );
 }
 
-function ListaPacientes() {
+function ListaPacientes({ rol }: { rol?: string }) {
   const [q, setQ] = useState("");
   const [lista, setLista] = useState<any[]>([]);
   const [ficha, setFicha] = useState<any | null>(null);
@@ -104,7 +105,7 @@ function ListaPacientes() {
           {lista.length === 0 && <tr><td colSpan={5} className="vacio">Sin resultados</td></tr>}
         </tbody>
       </table>
-      {ficha && <FichaPaciente paciente={ficha} onCerrar={() => setFicha(null)} />}
+      {ficha && <FichaPaciente paciente={ficha} rol={rol} onCerrar={() => setFicha(null)} />}
       {citaPara && <NuevaCitaPaciente paciente={citaPara} onCerrar={() => setCitaPara(null)} />}
     </>
   );
@@ -165,9 +166,12 @@ function NuevaCitaPaciente({ paciente, onCerrar }: { paciente: any; onCerrar: ()
   );
 }
 
-function FichaPaciente({ paciente, onCerrar }: { paciente: any; onCerrar: () => void }) {
+function FichaPaciente({ paciente, rol, onCerrar }: { paciente: any; rol?: string; onCerrar: () => void }) {
   const [f, setF] = useState({ nombre: paciente.nombre ?? "", apellidos: paciente.apellidos ?? "", email: paciente.email ?? "", telefono_contacto: paciente.telefono_contacto ?? "" });
   const [msg, setMsg] = useState("");
+  const [verHistoria, setVerHistoria] = useState(false);
+  // Datos clínicos: solo dirección/admin desde esta ficha (recepción gestiona lo administrativo)
+  const clinico = rol === "admin" || rol === "direccion";
 
   async function guardar() {
     try {
@@ -195,6 +199,22 @@ function FichaPaciente({ paciente, onCerrar }: { paciente: any; onCerrar: () => 
           Consentimiento RGPD: {paciente.consentimiento_rgpd ? `aceptado el ${new Date(paciente.consentimiento_fecha).toLocaleString("es-ES")}` : "no aceptado"}
         </p>
         <Consentimientos pacienteId={paciente.id} />
+        <Asignaciones pacienteId={paciente.id} />
+        {clinico && (
+          <div style={{ marginTop: 14 }}>
+            <div className="fila" style={{ marginBottom: 6 }}>
+              <h3 style={{ margin: 0 }}>Historia clínica</h3>
+              <button className="btn mini suave" onClick={() => setVerHistoria(!verHistoria)}>
+                {verHistoria ? "Ocultar" : "Abrir historia"}
+              </button>
+              {!verHistoria && <span className="nota" style={{ margin: 0 }}>Cada lectura queda registrada (RGPD)</span>}
+            </div>
+            {verHistoria && (
+              <HistoriaClinica pacienteId={paciente.id}
+                nombrePaciente={[paciente.nombre, paciente.apellidos].filter(Boolean).join(" ") || paciente.telefono} />
+            )}
+          </div>
+        )}
         <h3 style={{ marginTop: 16 }}>Citas</h3>
         <table className="t">
           <thead><tr><th>Cuándo</th><th>Médico</th><th>Tratamiento</th><th>Estado</th></tr></thead>
