@@ -14,27 +14,29 @@ export default function Config({ sub, setSub, rol, tieneFicha = false }: { sub: 
   // Médico/enfermería: su configuración es SOLO su perfil (ficha + horario + ausencias)
   if (["medico", "enfermera"].includes(rol)) return <MiPerfil inicial={perfilInicial} />;
   // Mi perfil es un espacio propio: dentro solo se ven SUS pestañas, no las de configuración
-  if (sub.startsWith("mi-perfil") && tieneFicha) return <MiPerfil inicial={perfilInicial} onVolver={() => setSub("catalogo")} />;
+  // (para volver al resto de secciones se usa la tuerca ⚙, sin botón de atrás)
+  if (sub.startsWith("mi-perfil") && tieneFicha) return <MiPerfil inicial={perfilInicial} />;
+  // Cada sección de configuración es su propio espacio: se navega SOLO con la tuerca ⚙
+  const TITULOS: Record<string, string> = {
+    catalogo: "Áreas y tratamientos", tratamientos: "Áreas y tratamientos", areas: "Áreas y tratamientos",
+    faq: "FAQ del bot", horarios: "Equipo · Horarios", bloqueos: "Equipo · Vacaciones y bloqueos", medicos: "Equipo · Usuarios y permisos",
+    usuarios: "Equipo · Usuarios y permisos", derechos: "RGPD · Derechos y solicitudes", "docs-rgpd": "RGPD · Documentos normativos", logs: "RGPD · Logs de actividad",
+  };
   return (
     <>
-      <div className="subtabs">
-        {tieneFicha && <button className={sub === "mi-perfil" ? "on" : ""} onClick={() => setSub("mi-perfil")}>Mi perfil</button>}
-        <button className={sub === "catalogo" ? "on" : ""} onClick={() => setSub("catalogo")}>Áreas y tratamientos</button>
-        <button className={sub === "faq" ? "on" : ""} onClick={() => setSub("faq")}>FAQ del bot</button>
-        <button className={sub === "horarios" ? "on" : ""} onClick={() => setSub("horarios")}>Horarios</button>
-        <button className={sub === "bloqueos" ? "on" : ""} onClick={() => setSub("bloqueos")}>Vacaciones y bloqueos</button>
-        <button className={sub === "medicos" ? "on" : ""} onClick={() => setSub("medicos")}>Médicos</button>
-        {puedeUsuarios && <button className={sub === "usuarios" ? "on" : ""} onClick={() => setSub("usuarios")}>Usuarios y permisos</button>}
-        <button className={sub === "derechos" ? "on" : ""} onClick={() => setSub("derechos")}>Derechos RGPD</button>
-        <button className={sub === "docs-rgpd" ? "on" : ""} onClick={() => setSub("docs-rgpd")}>Documentos RGPD</button>
-        {puedeUsuarios && <button className={sub === "logs" ? "on" : ""} onClick={() => setSub("logs")}>Logs</button>}
-      </div>
+      <h2 className="seccion" style={{ marginTop: 0 }}>⚙ {TITULOS[sub] ?? "Configuración"}</h2>
       {(sub === "catalogo" || sub === "tratamientos" || sub === "areas") && <AreasTratamientos />}
       {sub === "faq" && <Faq />}
       {sub === "horarios" && <Horarios />}
       {sub === "bloqueos" && <Bloqueos />}
-      {sub === "medicos" && <Medicos />}
-      {sub === "usuarios" && puedeUsuarios && <Usuarios rolActual={rol} />}
+      {/* Usuarios y permisos incluye las fichas de médicos/enfermería: TODO el equipo junto */}
+      {(sub === "usuarios" || sub === "medicos") && puedeUsuarios && (
+        <>
+          <Usuarios rolActual={rol} />
+          <h3 style={{ margin: "26px 0 6px" }}>Fichas de médicos y enfermería</h3>
+          <Medicos />
+        </>
+      )}
       {sub === "derechos" && <Derechos />}
       {sub === "docs-rgpd" && <DocumentosRgpd />}
       {sub === "logs" && puedeUsuarios && <Logs />}
@@ -49,6 +51,7 @@ function AreasTratamientos() {
   const [nombre, setNombre] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [nuevo, setNuevo] = useState<any | null>(null);
+  const [abierta, setAbierta] = useState<number | null>(null); // área desplegada
 
   const cargar = () => {
     api<any[]>("areas").then(setAreas).catch(() => {});
@@ -104,23 +107,41 @@ function AreasTratamientos() {
         </div>
       </div>
 
-      {areas.map((a) => (
-        <div className="card" key={a.id} style={{ marginBottom: 14, opacity: a.activo ? 1 : 0.55 }}>
-          <div className="fila">
-            <input defaultValue={a.nombre} style={{ width: 240, fontWeight: 600 }}
-              onBlur={(e) => { if (e.target.value.trim() && e.target.value !== a.nombre) api(`areas/${a.id}`, { method: "PATCH", body: { nombre: e.target.value.trim() } }).then(cargar).catch((er: any) => alert(er.message)); }} />
-            <input defaultValue={a.descripcion ?? ""} placeholder="Descripción" style={{ flex: 1, minWidth: 180 }}
-              onBlur={(e) => api(`areas/${a.id}`, { method: "PATCH", body: { descripcion: e.target.value || null } })} />
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
-              <input type="checkbox" style={{ width: "auto" }} defaultChecked={a.activo}
-                onChange={(e) => api(`areas/${a.id}`, { method: "PATCH", body: { activo: e.target.checked } }).then(cargar)} />
-              Activa
-            </label>
-            <button className="btn mini oro" onClick={() => setNuevo({ nombre: "", area_id: a.id, precio_eur: "", duracion_min: 30 })}>+ Tratamiento</button>
+      {areas.map((a) => {
+        const suyos = trats.filter((t) => t.area_id === a.id);
+        const open = abierta === a.id;
+        return (
+          <div className="card" key={a.id} style={{ marginBottom: 10, opacity: a.activo ? 1 : 0.55 }}>
+            {/* Cabecera clicable: despliega los tratamientos del área */}
+            <div className="fila" style={{ marginBottom: open ? 12 : 0, cursor: "pointer" }}
+              onClick={() => setAbierta(open ? null : a.id)}>
+              <b style={{ fontSize: 15 }}>{a.nombre}</b>
+              <span className="chip">{suyos.length} tratamiento{suyos.length === 1 ? "" : "s"}</span>
+              {!a.activo && <span className="chip cancelada">inactiva</span>}
+              {a.descripcion && !open && <span className="nota" style={{ margin: 0, fontSize: 12 }}>{a.descripcion}</span>}
+              <div style={{ flex: 1 }} />
+              <span style={{ color: "var(--muted)" }}>{open ? "▴" : "▾"}</span>
+            </div>
+            {open && (
+              <>
+                <div className="fila" onClick={(e) => e.stopPropagation()}>
+                  <input defaultValue={a.nombre} style={{ width: 240, fontWeight: 600 }}
+                    onBlur={(e) => { if (e.target.value.trim() && e.target.value !== a.nombre) api(`areas/${a.id}`, { method: "PATCH", body: { nombre: e.target.value.trim() } }).then(cargar).catch((er: any) => alert(er.message)); }} />
+                  <input defaultValue={a.descripcion ?? ""} placeholder="Descripción" style={{ flex: 1, minWidth: 180 }}
+                    onBlur={(e) => api(`areas/${a.id}`, { method: "PATCH", body: { descripcion: e.target.value || null } })} />
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                    <input type="checkbox" style={{ width: "auto" }} defaultChecked={a.activo}
+                      onChange={(e) => api(`areas/${a.id}`, { method: "PATCH", body: { activo: e.target.checked } }).then(cargar)} />
+                    Activa
+                  </label>
+                  <button className="btn mini oro" onClick={() => setNuevo({ nombre: "", area_id: a.id, precio_eur: "", duracion_min: 30 })}>+ Tratamiento</button>
+                </div>
+                <TablaTrats lista={suyos} />
+              </>
+            )}
           </div>
-          <TablaTrats lista={trats.filter((t) => t.area_id === a.id)} />
-        </div>
-      ))}
+        );
+      })}
 
       {sinArea.length > 0 && (
         <div className="card" style={{ marginBottom: 14 }}>

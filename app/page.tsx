@@ -17,7 +17,7 @@ export default function Page() {
   const [tab, setTab] = useState("inicio");
   const [configSub, setConfigSub] = useState("catalogo");
   const [menuConf, setMenuConf] = useState(false);
-  const [menuPerfil, setMenuPerfil] = useState(false);
+  const [grupoAbierto, setGrupoAbierto] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getToken()) { setCargando(false); return; }
@@ -48,42 +48,55 @@ export default function Page() {
               onClick={() => setMenuConf(!menuConf)}>⚙</button>
             {menuConf && (
               <>
-                <div className="menu-fondo" onClick={() => { setMenuConf(false); setMenuPerfil(false); }} />
+                <div className="menu-fondo" onClick={() => { setMenuConf(false); setGrupoAbierto(null); }} />
                 <div className="menu-conf">
-                  {/* Mi perfil: submenú de segundo nivel con sus secciones */}
-                  {Boolean(me.medico_id) && (
-                    <>
-                      <button className={tab === "config" && configSub.startsWith("mi-perfil") ? "on" : ""}
-                        onClick={() => setMenuPerfil(!menuPerfil)}>
-                        Mi perfil {esMedico ? "" : "(médico) "}{menuPerfil ? "▾" : "▸"}
-                      </button>
-                      {menuPerfil && [
+                  {([
+                    // Grupos con submenú ▸ y entradas sueltas
+                    ...(me.medico_id ? [{
+                      grupo: `Mi perfil${esMedico ? "" : " (médico)"}`,
+                      hijos: [
                         { id: "mi-perfil:ficha", t: "Mi ficha" },
                         { id: "mi-perfil:horario", t: "Mi horario" },
                         { id: "mi-perfil:ausencias", t: "Ausencias y vacaciones" },
-                      ].map((o) => (
-                        <button key={o.id} style={{ paddingLeft: 30, fontSize: 13 }}
-                          className={tab === "config" && configSub === o.id ? "on" : ""}
-                          onClick={() => { setTab("config"); setConfigSub(o.id); setMenuConf(false); setMenuPerfil(false); }}>
-                          {o.t}
+                      ],
+                    }] : []),
+                    ...(esMedico ? [] : [
+                      { id: "catalogo", t: "Áreas y tratamientos" },
+                      { id: "faq", t: "FAQ del bot" },
+                      {
+                        grupo: "Equipo",
+                        hijos: [
+                          ...(me.rol === "admin" || me.rol === "direccion" ? [{ id: "usuarios", t: "Usuarios y permisos" }] : []),
+                          { id: "horarios", t: "Horarios" },
+                          { id: "bloqueos", t: "Vacaciones y bloqueos" },
+                        ],
+                      },
+                      {
+                        grupo: "RGPD",
+                        hijos: [
+                          { id: "derechos", t: "Derechos y solicitudes" },
+                          { id: "docs-rgpd", t: "Documentos normativos" },
+                          ...(me.rol === "admin" || me.rol === "direccion" ? [{ id: "logs", t: "Logs de actividad" }] : []),
+                        ],
+                      },
+                    ]),
+                  ] as any[]).map((o) => o.hijos ? (
+                    <div key={o.grupo}>
+                      <button className={tab === "config" && o.hijos.some((h: any) => h.id === configSub) ? "on" : ""}
+                        onClick={() => setGrupoAbierto(grupoAbierto === o.grupo ? null : o.grupo)}>
+                        {o.grupo} {grupoAbierto === o.grupo ? "▾" : "▸"}
+                      </button>
+                      {grupoAbierto === o.grupo && o.hijos.map((h: any) => (
+                        <button key={h.id} style={{ paddingLeft: 30, fontSize: 13 }}
+                          className={tab === "config" && configSub === h.id ? "on" : ""}
+                          onClick={() => { setTab("config"); setConfigSub(h.id); setMenuConf(false); setGrupoAbierto(null); }}>
+                          {h.t}
                         </button>
                       ))}
-                    </>
-                  )}
-                  {(esMedico ? [] : [
-                    { id: "catalogo", t: "Áreas y tratamientos" },
-                    { id: "faq", t: "FAQ del bot" },
-                    { id: "horarios", t: "Horarios" },
-                    { id: "bloqueos", t: "Vacaciones y bloqueos" },
-                    { id: "medicos", t: "Médicos y enfermería" },
-                    { id: "derechos", t: "Derechos RGPD" },
-                    { id: "docs-rgpd", t: "Documentos RGPD" },
-                    ...(me.rol === "admin" || me.rol === "direccion"
-                      ? [{ id: "usuarios", t: "Usuarios y permisos" }, { id: "logs", t: "Logs de actividad" }]
-                      : []),
-                  ]).map((o) => (
+                    </div>
+                  ) : (
                     <button key={o.id} className={tab === "config" && configSub === o.id ? "on" : ""}
-                      onClick={() => { setTab("config"); setConfigSub(o.id); setMenuConf(false); setMenuPerfil(false); }}>
+                      onClick={() => { setTab("config"); setConfigSub(o.id); setMenuConf(false); setGrupoAbierto(null); }}>
                       {o.t}
                     </button>
                   ))}

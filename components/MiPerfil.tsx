@@ -12,7 +12,7 @@ import MiAgenda from "./MiAgenda";
    · Debajo, su agenda completa: antelación, semana tipo, ausencias.
    ============================================================ */
 
-export default function MiPerfil({ inicial, onVolver }: { inicial?: string; onVolver?: () => void }) {
+export default function MiPerfil({ inicial }: { inicial?: string }) {
   const [sub, setSub] = useState<"ficha" | "horario" | "ausencias">(
     inicial === "horario" || inicial === "ausencias" ? inicial : "ficha");
   useEffect(() => {
@@ -52,7 +52,6 @@ export default function MiPerfil({ inicial, onVolver }: { inicial?: string; onVo
   return (
     <>
       <div className="subtabs">
-        {onVolver && <button onClick={onVolver}>← Configuración</button>}
         <button className={sub === "ficha" ? "on" : ""} onClick={() => setSub("ficha")}>Mi ficha</button>
         <button className={sub === "horario" ? "on" : ""} onClick={() => setSub("horario")}>Mi horario</button>
         <button className={sub === "ausencias" ? "on" : ""} onClick={() => setSub("ausencias")}>Ausencias y vacaciones</button>
