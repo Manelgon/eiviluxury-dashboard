@@ -88,6 +88,14 @@ table.t tr:last-child td{border-bottom:none}
 .barra-lbl{font-size:10.5px;color:var(--muted)}
 .tip{position:absolute;background:var(--tinta);color:#fff;font-size:12px;padding:6px 10px;border-radius:8px;pointer-events:none;white-space:nowrap;transform:translate(-50%,-110%);z-index:10}
 
+/* Clientes: fila desplegable */
+.fila-cliente{cursor:pointer}
+.fila-cliente:hover td{background:#faf5eb}
+.fila-cliente.abierta td{background:#f7f1e6}
+.fila-acciones td{background:#fdfbf7;padding:10px 12px}
+.acciones-cliente{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.acciones-cliente a{text-decoration:none;display:inline-flex;align-items:center}
+
 /* Agenda: tabla horas × doctores */
 .tabla-scroll{overflow-x:auto;border:1px solid var(--linea);border-radius:14px;background:#fff}
 .tabla-agenda{width:100%;border-collapse:collapse;min-width:640px}

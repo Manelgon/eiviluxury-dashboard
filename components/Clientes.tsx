@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api, fmtFechaHora } from "./api";
 
 export default function Clientes() {
@@ -19,13 +19,14 @@ function ListaClientes() {
   const [q, setQ] = useState("");
   const [lista, setLista] = useState<any[]>([]);
   const [ficha, setFicha] = useState<any | null>(null);
+  const [abierto, setAbierto] = useState<number | null>(null);
+  const [citaPara, setCitaPara] = useState<any | null>(null);
 
+  const cargar = () => api<any[]>(`clientes${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setLista).catch(() => {});
   useEffect(() => {
-    const t = setTimeout(() => {
-      api<any[]>(`clientes${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setLista).catch(() => {});
-    }, 300);
+    const t = setTimeout(cargar, 300);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -33,23 +34,97 @@ function ListaClientes() {
         <input placeholder="Buscar por nombre, apellidos o teléfono…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 340 }} />
       </div>
       <table className="t">
-        <thead><tr><th>Nombre</th><th>Teléfono</th><th>Email</th><th>RGPD</th><th>Alta</th><th></th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Teléfono</th><th>Email</th><th>RGPD</th><th>Alta</th></tr></thead>
         <tbody>
           {lista.map((c) => (
-            <tr key={c.id}>
-              <td>{[c.nombre, c.apellidos].filter(Boolean).join(" ") || <i style={{ color: "var(--muted)" }}>sin nombre</i>}</td>
-              <td>{c.telefono}{c.telefono_contacto ? ` · ☎ ${c.telefono_contacto}` : ""}</td>
-              <td>{c.email ?? "—"}</td>
-              <td>{c.consentimiento_rgpd ? <span className="chip confirmada">aceptado</span> : <span className="chip cancelada">no</span>}</td>
-              <td>{new Date(c.created_at).toLocaleDateString("es-ES")}</td>
-              <td><button className="btn mini suave" onClick={() => api(`clientes/${c.id}`).then(setFicha)}>Ficha</button></td>
-            </tr>
+            <Fragment key={c.id}>
+              <tr className={`fila-cliente ${abierto === c.id ? "abierta" : ""}`}
+                onClick={() => setAbierto(abierto === c.id ? null : c.id)}>
+                <td>{[c.nombre, c.apellidos].filter(Boolean).join(" ") || <i style={{ color: "var(--muted)" }}>sin nombre</i>}</td>
+                <td>{c.telefono}{c.telefono_contacto ? ` · ☎ ${c.telefono_contacto}` : ""}</td>
+                <td>{c.email ?? "—"}</td>
+                <td>{c.consentimiento_rgpd ? <span className="chip confirmada">aceptado</span> : <span className="chip cancelada">no</span>}</td>
+                <td>{new Date(c.created_at).toLocaleDateString("es-ES")}</td>
+              </tr>
+              {abierto === c.id && (
+                <tr className="fila-acciones">
+                  <td colSpan={5}>
+                    <div className="acciones-cliente">
+                      <button className="btn mini" onClick={() => api(`clientes/${c.id}`).then(setFicha)}>📋 Ver ficha</button>
+                      <button className="btn mini oro" onClick={() => setCitaPara(c)}>📅 Nueva cita</button>
+                      <a className="btn mini suave" href={`https://wa.me/${c.telefono}`} target="_blank" rel="noopener"
+                        onClick={(e) => e.stopPropagation()}>💬 WhatsApp</a>
+                      <button className="btn mini suave" onClick={async () => {
+                        await api(`clientes/${c.id}`, { method: "PATCH", body: { activo: !c.activo } });
+                        cargar();
+                      }}>{c.activo ? "🚫 Desactivar" : "✅ Reactivar"}</button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           ))}
-          {lista.length === 0 && <tr><td colSpan={6} className="vacio">Sin resultados</td></tr>}
+          {lista.length === 0 && <tr><td colSpan={5} className="vacio">Sin resultados</td></tr>}
         </tbody>
       </table>
       {ficha && <FichaCliente cliente={ficha} onCerrar={() => setFicha(null)} />}
+      {citaPara && <NuevaCitaCliente cliente={citaPara} onCerrar={() => setCitaPara(null)} />}
     </>
+  );
+}
+
+function NuevaCitaCliente({ cliente, onCerrar }: { cliente: any; onCerrar: () => void }) {
+  const [medicos, setMedicos] = useState<any[]>([]);
+  const [tratamientos, setTratamientos] = useState<any[]>([]);
+  const [medicoId, setMedicoId] = useState<number | null>(null);
+  const [tratId, setTratId] = useState<number | null>(null);
+  const [dia, setDia] = useState(new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Madrid" }).format(new Date()));
+  const [hora, setHora] = useState("10:00");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api<any[]>("medicos").then((m) => { const act = m.filter((x: any) => x.activo); setMedicos(act); if (act[0]) setMedicoId(act[0].id); });
+    api<any[]>("tratamientos").then(setTratamientos).catch(() => {});
+  }, []);
+
+  async function guardar() {
+    if (!medicoId) return;
+    const trat = tratamientos.find((t) => t.id === tratId);
+    try {
+      await api("citas", {
+        method: "POST",
+        body: { cliente_id: cliente.id, medico_id: medicoId, tratamiento_id: tratId, fecha: dia, hora, duracion_min: trat?.duracion_min ?? 30 },
+      });
+      onCerrar();
+    } catch (e: any) { setError(e.message); }
+  }
+
+  return (
+    <div className="modal-bg" onClick={onCerrar}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Nueva cita · {[cliente.nombre, cliente.apellidos].filter(Boolean).join(" ") || cliente.telefono}</h3>
+        <div className="campo"><label>Doctor/a o enfermería</label>
+          <select value={medicoId ?? ""} onChange={(e) => setMedicoId(Number(e.target.value))}>
+            {medicos.map((m) => <option key={m.id} value={m.id}>{m.nombre}{m.tipo === "enfermera" ? " (Enfermería)" : ""}</option>)}
+          </select>
+        </div>
+        <div className="campo"><label>Tratamiento (opcional)</label>
+          <select value={tratId ?? ""} onChange={(e) => setTratId(e.target.value ? Number(e.target.value) : null)}>
+            <option value="">— Sin especificar —</option>
+            {tratamientos.filter((t) => t.activo).map((t) => <option key={t.id} value={t.id}>{t.nombre} ({t.duracion_min}′)</option>)}
+          </select>
+        </div>
+        <div className="campo" style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}><label>Fecha</label><input type="date" value={dia} onChange={(e) => setDia(e.target.value)} /></div>
+          <div style={{ flex: 1 }}><label>Hora</label><input type="time" value={hora} onChange={(e) => setHora(e.target.value)} step={300} /></div>
+        </div>
+        {error && <div className="error">{error}</div>}
+        <div className="fila" style={{ justifyContent: "flex-end" }}>
+          <button className="btn suave" onClick={onCerrar}>Cerrar</button>
+          <button className="btn oro" onClick={guardar}>Guardar cita</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
