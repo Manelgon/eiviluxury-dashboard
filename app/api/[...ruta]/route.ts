@@ -101,7 +101,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (metodo === "GET") {
         const { data, error } = await db()
           .from("medicos")
-          .select("id, nombre, especialidad, activo, tipo, medico_areas(area_id)")
+          .select("id, nombre, especialidad, activo, tipo, num_colegiado, dni, telefono, email, fecha_nacimiento, direccion, bio, medico_areas(area_id)")
           .order("nombre");
         if (error) return err(error.message, 500);
         return json(data);
@@ -127,10 +127,14 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       }
       if (metodo === "PATCH" && r1) {
         const cambios: Record<string, unknown> = {};
-        for (const k of ["nombre", "especialidad", "tipo", "activo"]) if (k in body) cambios[k] = body[k];
+        for (const k of ["nombre", "especialidad", "tipo", "activo", "num_colegiado", "dni", "telefono", "email", "fecha_nacimiento", "direccion", "bio"])
+          if (k in body) cambios[k] = body[k];
         if (Object.keys(cambios).length) {
           const { error } = await db().from("medicos").update(cambios).eq("id", Number(r1));
-          if (error) return err(error.message, 500);
+          if (error) {
+            if (error.code === "23505") return err("Ya existe un médico con ese DNI o número de colegiado");
+            return err(error.message, 500);
+          }
         }
         // Sincronizar áreas del médico (si vienen en el body)
         if (Array.isArray(body.areas)) {
@@ -608,23 +612,61 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         return error ? err(error.message, 500) : json(data);
       }
       if (metodo === "POST") {
-        const { email, password, nombre, rol, medico_id } = body;
+        const { email, password, nombre, rol, medico_id, ficha } = body;
         if (!email || !password || !rol) return err("Faltan email, contraseña o rol");
         if (String(password).length < 8) return err("La contraseña debe tener al menos 8 caracteres");
         if (!["admin", "direccion", "recepcion", "enfermera", "medico"].includes(rol)) return err("Rol no válido");
-        // 1. Crear el usuario de acceso (queda dado de alta directamente, sin email de confirmación)
+
+        // 1. Si es médico/enfermera con FICHA NUEVA: crearla primero (si falla, no se crea nada más)
+        let fichaId: number | null = medico_id ?? null;
+        if (["medico", "enfermera"].includes(rol) && ficha && !medico_id) {
+          if (!ficha.nombre?.trim()) return err("Falta el nombre para la ficha del médico");
+          if (rol === "medico" && !ficha.num_colegiado?.trim())
+            return err("El número de colegiado es obligatorio para crear una ficha de médico");
+          const areaIds = (Array.isArray(ficha.areas) ? ficha.areas : []).map(Number).filter(Boolean);
+          if (rol === "medico" && areaIds.length === 0) return err("Elige al menos un área para el médico");
+          const { data: m, error: eM } = await db().from("medicos").insert({
+            nombre: ficha.nombre.trim(),
+            especialidad: ficha.especialidad?.trim() || null,
+            tipo: rol === "enfermera" ? "enfermera" : "medico",
+            num_colegiado: ficha.num_colegiado?.trim() || null,
+            dni: ficha.dni?.trim() || null,
+            telefono: ficha.telefono?.trim() || null,
+            email: ficha.email?.trim() || email,
+            fecha_nacimiento: ficha.fecha_nacimiento || null,
+            direccion: ficha.direccion?.trim() || null,
+            bio: ficha.bio?.trim() || null,
+          }).select("id").single();
+          if (eM) {
+            if (eM.code === "23505") return err("Ya existe un médico con ese DNI o número de colegiado");
+            return err(`No se pudo crear la ficha del médico: ${eM.message}`, 500);
+          }
+          for (const areaId of areaIds) {
+            const { error: eA2 } = await db().from("medico_areas").insert({ medico_id: m.id, area_id: areaId });
+            if (eA2 && eA2.code !== "23505") console.error("medico_areas:", eA2.message);
+          }
+          fichaId = m.id;
+          void auditar(u, "config.medico.crear", { tipo: "medico", id: String(m.id), label: ficha.nombre.trim() },
+            { origen: "alta_usuario", num_colegiado: ficha.num_colegiado ?? null, dni: ficha.dni ?? null, areas: areaIds });
+        }
+
+        // 2. Crear el usuario de acceso (queda dado de alta directamente, sin email de confirmación)
         const { data: nuevo, error: eA } = await db().auth.admin.createUser({
           email, password, email_confirm: true,
         });
-        if (eA) return err(`No se pudo crear el acceso: ${eA.message}`, 500);
-        // 2. Su fila de rol en el panel
+        if (eA) {
+          // deshacer la ficha recién creada para no dejarla huérfana
+          if (fichaId && ficha && !medico_id) await db().from("medicos").delete().eq("id", fichaId);
+          return err(`No se pudo crear el acceso: ${eA.message}`, 500);
+        }
+        // 3. Su fila de rol en el panel, ya vinculada a la ficha
         const { error: eI } = await db().from("usuarios_panel").insert({
-          user_id: nuevo.user.id, email, nombre: nombre ?? null, rol, medico_id: medico_id ?? null,
+          user_id: nuevo.user.id, email, nombre: nombre ?? ficha?.nombre ?? null, rol, medico_id: fichaId,
         });
         if (eI) return err(eI.message, 500);
         void auditar(u, "usuario.crear", { tipo: "usuario", id: nuevo.user.id, label: email },
-          { rol, nombre: nombre ?? null, medico_id: medico_id ?? null }); // la contraseña NUNCA se registra
-        return json({ ok: true });
+          { rol, nombre: nombre ?? ficha?.nombre ?? null, medico_id: fichaId, ficha_creada: Boolean(ficha && !medico_id) }); // la contraseña NUNCA se registra
+        return json({ ok: true, medico_id: fichaId });
       }
       if (metodo === "PATCH" && r1) {
         const cambios: Record<string, unknown> = {};

@@ -81,6 +81,7 @@ function Medicos() {
   const [lista, setLista] = useState<any[]>([]);
   const [areas, setAreas] = useState<any[]>([]);
   const [nuevo, setNuevo] = useState<any | null>(null);
+  const [editar, setEditar] = useState<any | null>(null);
   const cargar = () => api<any[]>("medicos").then(setLista).catch((e) => alert(e.message));
   useEffect(() => { cargar(); api<any[]>("areas").then((a) => setAreas(a.filter((x: any) => x.activo))).catch(() => {}); }, []);
 
@@ -98,7 +99,7 @@ function Medicos() {
         <button className="btn oro" onClick={() => setNuevo({ nombre: "", especialidad: "", tipo: "medico", areas: [] })}>+ Crear médico</button>
       </div>
       <table className="t">
-        <thead><tr><th>Nombre</th><th>Especialidad</th><th>Tipo</th><th>Áreas</th><th>Activo</th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Especialidad</th><th>Tipo</th><th>Áreas</th><th>Activo</th><th></th></tr></thead>
         <tbody>
           {lista.map((m) => {
             const suyas = (m.medico_areas ?? []).map((x: any) => x.area_id);
@@ -126,11 +127,13 @@ function Medicos() {
                   ))}
                 </td>
                 <td><input type="checkbox" defaultChecked={m.activo} onChange={(e) => actualizar(m.id, { activo: e.target.checked })} /></td>
+                <td><button className="btn mini suave" title={m.num_colegiado ? `Colegiado ${m.num_colegiado}` : "Sin nº colegiado"} onClick={() => setEditar(m)}>✎ Ficha</button></td>
               </tr>
             );
           })}
         </tbody>
       </table>
+      {editar && <FichaMedico medico={editar} onCerrar={(ok) => { setEditar(null); if (ok) cargar(); }} />}
       {nuevo && (
         <div className="modal-bg" onClick={() => setNuevo(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -171,6 +174,46 @@ function Medicos() {
   );
 }
 
+/* Editor de la ficha completa del facultativo (datos SANIAN: colegiado, DNI...) */
+function FichaMedico({ medico, onCerrar }: { medico: any; onCerrar: (ok: boolean) => void }) {
+  const [f, setF] = useState({
+    num_colegiado: medico.num_colegiado ?? "", dni: medico.dni ?? "", telefono: medico.telefono ?? "",
+    email: medico.email ?? "", fecha_nacimiento: medico.fecha_nacimiento ?? "", direccion: medico.direccion ?? "", bio: medico.bio ?? "",
+  });
+  const [error, setError] = useState("");
+  return (
+    <div className="modal-bg" onClick={() => onCerrar(false)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Ficha · {medico.nombre}</h3>
+        <div className="campo" style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}><label>Nº colegiado</label><input value={f.num_colegiado} onChange={(e) => setF({ ...f, num_colegiado: e.target.value })} /></div>
+          <div style={{ flex: 1 }}><label>DNI</label><input value={f.dni} onChange={(e) => setF({ ...f, dni: e.target.value })} /></div>
+          <div style={{ flex: 1 }}><label>Fecha de nacimiento</label><input type="date" value={f.fecha_nacimiento} onChange={(e) => setF({ ...f, fecha_nacimiento: e.target.value })} /></div>
+        </div>
+        <div className="campo" style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}><label>Teléfono</label><input value={f.telefono} onChange={(e) => setF({ ...f, telefono: e.target.value })} /></div>
+          <div style={{ flex: 1 }}><label>Email</label><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
+        </div>
+        <div className="campo"><label>Dirección</label><input value={f.direccion} onChange={(e) => setF({ ...f, direccion: e.target.value })} /></div>
+        <div className="campo"><label>Bio / notas</label><textarea rows={2} value={f.bio} onChange={(e) => setF({ ...f, bio: e.target.value })} /></div>
+        {error && <div className="error">{error}</div>}
+        <div className="fila" style={{ justifyContent: "flex-end" }}>
+          <button className="btn suave" onClick={() => onCerrar(false)}>Cerrar</button>
+          <button className="btn oro" onClick={async () => {
+            try {
+              await api(`medicos/${medico.id}`, {
+                method: "PATCH",
+                body: Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v === "" ? null : v])),
+              });
+              onCerrar(true);
+            } catch (e: any) { setError(e.message); }
+          }}>Guardar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Usuarios({ rolActual }: { rolActual: string }) {
   const [lista, setLista] = useState<any[]>([]);
   const [medicos, setMedicos] = useState<any[]>([]);
@@ -183,7 +226,7 @@ function Usuarios({ rolActual }: { rolActual: string }) {
     <>
       <p className="nota">Los usuarios se dan de alta al momento: pueden entrar con su email y contraseña nada más crearlos. Roles: admin (técnico) · direccion (todo) · recepcion (gestión) · enfermera (agenda completa) · medico (solo su agenda, requiere vincular su columna). Si un médico nuevo no aparece en "Vinculado a", crea antes su ficha en <b>Configuración → Médicos</b>: sin vincular no verá agenda ni pacientes.</p>
       <div className="fila">
-        <button className="btn oro" onClick={() => setNuevo({ email: "", password: "", nombre: "", rol: "recepcion", medico_id: null })}>+ Crear usuario</button>
+        <button className="btn oro" onClick={() => setNuevo({ paso: "tipo" })}>+ Crear usuario</button>
       </div>
       <table className="t">
         <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Vinculado a</th><th>Activo</th><th></th></tr></thead>
@@ -218,36 +261,147 @@ function Usuarios({ rolActual }: { rolActual: string }) {
       </table>
 
       {nuevo && (
-        <div className="modal-bg" onClick={() => setNuevo(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Crear usuario del panel</h3>
-            <div className="campo"><label>Email</label><input type="email" value={nuevo.email} onChange={(e) => setNuevo({ ...nuevo, email: e.target.value })} /></div>
-            <div className="campo"><label>Contraseña (mín. 8 caracteres)</label><input type="text" value={nuevo.password} onChange={(e) => setNuevo({ ...nuevo, password: e.target.value })} /></div>
-            <div className="campo"><label>Nombre</label><input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} /></div>
-            <div className="campo"><label>Rol</label>
-              <select value={nuevo.rol} onChange={(e) => setNuevo({ ...nuevo, rol: e.target.value })}>
-                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-            {["medico", "enfermera"].includes(nuevo.rol) && (
-              <div className="campo"><label>Vincular a su columna de agenda</label>
-                <select value={nuevo.medico_id ?? ""} onChange={(e) => setNuevo({ ...nuevo, medico_id: e.target.value ? Number(e.target.value) : null })}>
-                  <option value="">— elegir —</option>
-                  {medicos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-                </select>
-              </div>
-            )}
-            <div className="fila" style={{ justifyContent: "flex-end" }}>
-              <button className="btn suave" onClick={() => setNuevo(null)}>Cerrar</button>
-              <button className="btn oro" onClick={async () => {
-                try { await api("usuarios", { method: "POST", body: nuevo }); setNuevo(null); cargar(); }
-                catch (e: any) { alert(e.message); }
-              }}>Crear y dar de alta</button>
-            </div>
-          </div>
-        </div>
+        <CrearUsuario rolActual={rolActual} medicos={medicos}
+          onCerrar={(ok) => { setNuevo(null); if (ok) { cargar(); api<any[]>("medicos").then(setMedicos).catch(() => {}); } }} />
       )}
     </>
+  );
+}
+
+/* Alta de usuario en dos pasos: elegir QUÉ se crea → formulario adaptado.
+   Médico/enfermería crean a la vez el acceso Y su ficha (o se vinculan a una existente). */
+function CrearUsuario({ rolActual, medicos, onCerrar }: { rolActual: string; medicos: any[]; onCerrar: (ok: boolean) => void }) {
+  const [tipo, setTipo] = useState<string | null>(null);
+  const [areas, setAreas] = useState<any[]>([]);
+  const [f, setF] = useState<any>({ email: "", password: "", nombre: "" });
+  const [ficha, setFicha] = useState<any>({ nombre: "", especialidad: "", num_colegiado: "", dni: "", telefono: "", fecha_nacimiento: "", direccion: "", bio: "", areas: [] });
+  const [vincularA, setVincularA] = useState<number | "">(""); // ficha existente en vez de crear
+  const [error, setError] = useState("");
+  const [creando, setCreando] = useState(false);
+
+  useEffect(() => { api<any[]>("areas").then((a) => setAreas(a.filter((x: any) => x.activo))).catch(() => {}); }, []);
+
+  const TIPOS = [
+    { id: "medico", t: "🩺 Médico", d: "Acceso + ficha de facultativo (nº colegiado, áreas, agenda). Solo ve su agenda y sus pacientes." },
+    { id: "enfermera", t: "💉 Enfermería", d: "Acceso + ficha de enfermería con su columna de agenda." },
+    { id: "direccion", t: "👔 Dirección", d: "Acceso total: gestión, configuración, usuarios, logs e historia clínica." },
+    { id: "recepcion", t: "🛎 Recepción", d: "Gestión de agenda, pacientes y lista de espera. Sin datos clínicos ni usuarios." },
+    ...(rolActual === "admin" ? [{ id: "admin", t: "⚙ Admin (técnico)", d: "Todo, incluido conceder rol admin." }] : []),
+  ];
+  const esSanitario = tipo === "medico" || tipo === "enfermera";
+  const fichasLibres = medicos.filter((m: any) => m.activo && (tipo !== "medico" || m.tipo !== "enfermera") && (tipo !== "enfermera" || m.tipo === "enfermera"));
+
+  async function crear() {
+    setError("");
+    if (!f.email || !f.password) { setError("Faltan email o contraseña"); return; }
+    setCreando(true);
+    try {
+      const body: any = { email: f.email, password: f.password, rol: tipo };
+      if (esSanitario) {
+        if (vincularA) { body.medico_id = vincularA; body.nombre = f.nombre || medicos.find((m: any) => m.id === vincularA)?.nombre; }
+        else { body.ficha = ficha; body.nombre = ficha.nombre; }
+      } else body.nombre = f.nombre;
+      await api("usuarios", { method: "POST", body });
+      onCerrar(true);
+    } catch (e: any) { setError(e.message); }
+    finally { setCreando(false); }
+  }
+
+  return (
+    <div className="modal-bg" onClick={() => onCerrar(false)}>
+      <div className="modal" style={{ width: "min(680px,96vw)", maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        {!tipo ? (
+          <>
+            <h3>¿Qué usuario quieres crear?</h3>
+            {TIPOS.map((t) => (
+              <button key={t.id} className="card" style={{ display: "block", width: "100%", textAlign: "left", marginBottom: 8, cursor: "pointer" }}
+                onClick={() => setTipo(t.id)}>
+                <b>{t.t}</b>
+                <p className="nota" style={{ margin: "4px 0 0" }}>{t.d}</p>
+              </button>
+            ))}
+            <div className="fila" style={{ justifyContent: "flex-end" }}>
+              <button className="btn suave" onClick={() => onCerrar(false)}>Cerrar</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3>{TIPOS.find((t) => t.id === tipo)?.t} · nuevo usuario</h3>
+
+            {/* Acceso al panel */}
+            <div className="campo" style={{ display: "flex", gap: 10 }}>
+              <div style={{ flex: 1 }}><label>Email de acceso</label>
+                <input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
+              <div style={{ flex: 1 }}><label>Contraseña (mín. 8)</label>
+                <input type="text" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>
+            </div>
+
+            {!esSanitario && (
+              <div className="campo"><label>Nombre</label>
+                <input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} /></div>
+            )}
+
+            {esSanitario && (
+              <>
+                {fichasLibres.length > 0 && (
+                  <div className="campo"><label>¿Ya existe su ficha? (opcional — si eliges una, no se crea ficha nueva)</label>
+                    <select value={vincularA} onChange={(e) => setVincularA(e.target.value ? Number(e.target.value) : "")}>
+                      <option value="">— No, crear ficha nueva —</option>
+                      {fichasLibres.map((m: any) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                    </select>
+                  </div>
+                )}
+                {!vincularA && (
+                  <div className="card" style={{ marginBottom: 10 }}>
+                    <p className="nota" style={{ marginTop: 0 }}><b>Ficha del facultativo</b> — se crea a la vez que el acceso y queda vinculada</p>
+                    <div className="campo" style={{ display: "flex", gap: 10 }}>
+                      <div style={{ flex: 1 }}><label>Nombre (como saldrá en agenda y bot) *</label>
+                        <input value={ficha.nombre} onChange={(e) => setFicha({ ...ficha, nombre: e.target.value })} placeholder="Dr./Dra. Nombre Apellidos" /></div>
+                      <div style={{ flex: 1 }}><label>Especialidad</label>
+                        <input value={ficha.especialidad} onChange={(e) => setFicha({ ...ficha, especialidad: e.target.value })} /></div>
+                    </div>
+                    <div className="campo" style={{ display: "flex", gap: 10 }}>
+                      <div style={{ flex: 1 }}><label>Nº colegiado {tipo === "medico" ? "*" : "(opcional)"}</label>
+                        <input value={ficha.num_colegiado} onChange={(e) => setFicha({ ...ficha, num_colegiado: e.target.value })} /></div>
+                      <div style={{ flex: 1 }}><label>DNI</label>
+                        <input value={ficha.dni} onChange={(e) => setFicha({ ...ficha, dni: e.target.value })} /></div>
+                      <div style={{ flex: 1 }}><label>Fecha de nacimiento</label>
+                        <input type="date" value={ficha.fecha_nacimiento} onChange={(e) => setFicha({ ...ficha, fecha_nacimiento: e.target.value })} /></div>
+                    </div>
+                    <div className="campo" style={{ display: "flex", gap: 10 }}>
+                      <div style={{ flex: 1 }}><label>Teléfono</label>
+                        <input value={ficha.telefono} onChange={(e) => setFicha({ ...ficha, telefono: e.target.value })} /></div>
+                      <div style={{ flex: 2 }}><label>Dirección</label>
+                        <input value={ficha.direccion} onChange={(e) => setFicha({ ...ficha, direccion: e.target.value })} /></div>
+                    </div>
+                    <div className="campo"><label>Áreas en las que trabaja {tipo === "medico" ? "*" : ""}</label>
+                      <div>
+                        {areas.map((a) => (
+                          <label key={a.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 12, fontSize: 13 }}>
+                            <input type="checkbox" style={{ width: "auto" }} checked={ficha.areas.includes(a.id)}
+                              onChange={(e) => setFicha({ ...ficha, areas: e.target.checked ? [...ficha.areas, a.id] : ficha.areas.filter((x: number) => x !== a.id) })} />
+                            {a.nombre}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="campo"><label>Bio / notas (opcional)</label>
+                      <textarea rows={2} value={ficha.bio} onChange={(e) => setFicha({ ...ficha, bio: e.target.value })} /></div>
+                    <p className="nota" style={{ margin: 0 }}>Después: asigna su horario en Configuración → Horarios para que aparezca en la agenda y el bot le pueda dar citas.</p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {error && <div className="error">{error}</div>}
+            <div className="fila" style={{ justifyContent: "flex-end" }}>
+              <button className="btn suave" onClick={() => setTipo(null)}>← Atrás</button>
+              <button className="btn oro" disabled={creando} onClick={crear}>{creando ? "Creando…" : "Crear y dar de alta"}</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
