@@ -37,7 +37,7 @@ export default function Page() {
         <div className="tabs">
           {!esMedico && <button className={tab === "inicio" ? "on" : ""} onClick={() => setTab("inicio")}>Inicio</button>}
           <button className={tab === "agenda" ? "on" : ""} onClick={() => setTab("agenda")}>Agenda</button>
-          {Boolean(me.medico_id) && <button className={tab === "mi-agenda" ? "on" : ""} onClick={() => setTab("mi-agenda")}>Mi agenda</button>}
+          {Boolean(me.medico_id) && <button className={tab === "mi-agenda" ? "on" : ""} onClick={() => setTab("mi-agenda")}>Mi horario</button>}
           {Boolean(me.medico_id) && me.rol !== "enfermera" && <button className={tab === "mis-pacientes" ? "on" : ""} onClick={() => setTab("mis-pacientes")}>Mis pacientes</button>}
           {!esMedico && <button className={tab === "pacientes" ? "on" : ""} onClick={() => setTab("pacientes")}>Pacientes</button>}
           {!esMedico && <button className={tab === "metricas" ? "on" : ""} onClick={() => setTab("metricas")}>Métricas</button>}
@@ -78,7 +78,7 @@ export default function Page() {
       </div>
       <div className="main">
         {tab === "inicio" && !esMedico && <Inicio />}
-        {tab === "agenda" && <Agenda />}
+        {tab === "agenda" && <Agenda medicoId={me.medico_id ?? null} />}
         {tab === "mi-agenda" && Boolean(me.medico_id) && <MiAgenda />}
         {tab === "mis-pacientes" && Boolean(me.medico_id) && me.rol !== "enfermera" && <MisPacientes />}
         {tab === "pacientes" && <Pacientes rol={me.rol} />}

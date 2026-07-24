@@ -26,13 +26,15 @@ const lunesDe = (fecha: string) => {
 const fmtDiaCorto = (fecha: string) =>
   new Date(`${fecha}T12:00:00Z`).toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 
-export default function Agenda() {
+export default function Agenda({ medicoId = null }: { medicoId?: number | null }) {
   const [modo, setModo] = useState<Modo>("dia");
   const [fecha, setFecha] = useState(hoyISO());
   const [error, setError] = useState("");
   const [nueva, setNueva] = useState<{ medico_id?: number; hora?: string } | null>(null);
   const [medicos, setMedicos] = useState<Medico[]>([]);
   const [refresco, setRefresco] = useState(0);
+  const [soloYo, setSoloYo] = useState(false); // directivo-médico: ver solo su columna
+  const soloId = soloYo && medicoId ? medicoId : null;
   const recargar = () => setRefresco((n) => n + 1);
 
   useEffect(() => { api<Medico[]>("medicos").then((m) => setMedicos(m.filter((x: any) => x.activo))).catch(() => {}); }, []);
@@ -59,15 +61,19 @@ export default function Agenda() {
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{ width: 150 }} />
         <button className="btn suave mini" onClick={() => setFecha(sumaDias(fecha, saltoDia))}>→</button>
         <button className="btn suave mini" onClick={() => setFecha(hoyISO())}>Hoy</button>
+        {medicoId && (
+          <button className={`btn mini ${soloYo ? "oro" : "suave"}`} title="Ver solo tu columna de citas"
+            onClick={() => setSoloYo(!soloYo)}>👤 Solo mi columna</button>
+        )}
         <div style={{ flex: 1 }} />
         <button className="btn oro" onClick={() => setNueva({})}>+ Nueva cita</button>
       </div>
       <h2 className="seccion" style={{ textTransform: "none", letterSpacing: 1 }}>{titulo}</h2>
       {error && <div className="error">{error}</div>}
 
-      {modo === "dia" && <VistaDia fecha={fecha} refresco={refresco} onError={setError} onNueva={(m, h) => setNueva({ medico_id: m, hora: h })} onCambio={recargar} />}
-      {modo === "semana" && <VistaSemana fecha={fecha} refresco={refresco} onIrDia={(f) => { setFecha(f); setModo("dia"); }} />}
-      {modo === "mes" && <VistaMes fecha={fecha} refresco={refresco} onIrDia={(f) => { setFecha(f); setModo("dia"); }} />}
+      {modo === "dia" && <VistaDia fecha={fecha} refresco={refresco} soloId={soloId} onError={setError} onNueva={(m, h) => setNueva({ medico_id: m, hora: h })} onCambio={recargar} />}
+      {modo === "semana" && <VistaSemana fecha={fecha} refresco={refresco} soloId={soloId} onIrDia={(f) => { setFecha(f); setModo("dia"); }} />}
+      {modo === "mes" && <VistaMes fecha={fecha} refresco={refresco} soloId={soloId} onIrDia={(f) => { setFecha(f); setModo("dia"); }} />}
 
       {nueva && (
         <NuevaCita
@@ -84,13 +90,14 @@ export default function Agenda() {
 
 /* ================= VISTA DÍA: tabla horas × doctores ================= */
 
-function VistaDia({ fecha, refresco, onError, onNueva, onCambio }:
-  { fecha: string; refresco: number; onError: (e: string) => void; onNueva: (medico: number, hora: string) => void; onCambio: () => void }) {
-  const [datos, setDatos] = useState<{ medicos: Medico[] } | null>(null);
+function VistaDia({ fecha, refresco, soloId, onError, onNueva, onCambio }:
+  { fecha: string; refresco: number; soloId: number | null; onError: (e: string) => void; onNueva: (medico: number, hora: string) => void; onCambio: () => void }) {
+  const [crudo, setCrudo] = useState<{ medicos: Medico[] } | null>(null);
   const [sel, setSel] = useState<Cita | null>(null);
+  const datos = useMemo(() => crudo && ({ ...crudo, medicos: crudo.medicos.filter((m) => !soloId || m.id === soloId) }), [crudo, soloId]);
 
   useEffect(() => {
-    api<{ medicos: Medico[] }>(`agenda?fecha=${fecha}`).then((d) => { setDatos(d); onError(""); }).catch((e) => onError(e.message));
+    api<{ medicos: Medico[] }>(`agenda?fecha=${fecha}`).then((d) => { setCrudo(d); onError(""); }).catch((e) => onError(e.message));
   }, [fecha, refresco, onError]);
 
   const franjas = useMemo(() => {
@@ -205,7 +212,7 @@ const sumarFranja = (f: string) => {
 
 /* ================= VISTA SEMANA: doctores × días ================= */
 
-function VistaSemana({ fecha, refresco, onIrDia }: { fecha: string; refresco: number; onIrDia: (f: string) => void }) {
+function VistaSemana({ fecha, refresco, soloId, onIrDia }: { fecha: string; refresco: number; soloId: number | null; onIrDia: (f: string) => void }) {
   const lunes = lunesDe(fecha);
   const dias = Array.from({ length: 7 }, (_, i) => sumaDias(lunes, i));
   const [datos, setDatos] = useState<{ medicos: Medico[]; citas: Cita[] } | null>(null);
@@ -229,7 +236,7 @@ function VistaSemana({ fecha, refresco, onIrDia }: { fecha: string; refresco: nu
           </tr>
         </thead>
         <tbody>
-          {datos.medicos.map((m) => (
+          {datos.medicos.filter((m) => !soloId || m.id === soloId).map((m) => (
             <tr key={m.id}>
               <td className="td-medico">{m.nombre}{m.tipo === "enfermera" && <small> · Enf.</small>}</td>
               {dias.map((d) => {
@@ -256,7 +263,7 @@ function VistaSemana({ fecha, refresco, onIrDia }: { fecha: string; refresco: nu
 
 /* ================= VISTA MES: calendario ================= */
 
-function VistaMes({ fecha, refresco, onIrDia }: { fecha: string; refresco: number; onIrDia: (f: string) => void }) {
+function VistaMes({ fecha, refresco, soloId, onIrDia }: { fecha: string; refresco: number; soloId: number | null; onIrDia: (f: string) => void }) {
   const primero = `${fecha.slice(0, 7)}-01`;
   const inicioGrid = lunesDe(primero);
   const celdas = Array.from({ length: 42 }, (_, i) => sumaDias(inicioGrid, i));
@@ -270,11 +277,12 @@ function VistaMes({ fecha, refresco, onIrDia }: { fecha: string; refresco: numbe
   const porDia = useMemo(() => {
     const m: Record<string, number> = {};
     for (const c of citas) {
+      if (soloId && c.medico_id !== soloId) continue;
       const f = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Madrid" }).format(new Date(c.inicio));
       m[f] = (m[f] ?? 0) + 1;
     }
     return m;
-  }, [citas]);
+  }, [citas, soloId]);
 
   return (
     <div>
