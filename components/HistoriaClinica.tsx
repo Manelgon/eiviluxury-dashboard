@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { api, fmtFechaHora } from "./api";
+import { api, fmtFechaHora, getToken } from "./api";
 
 /* ============================================================
    Historia clínica del paciente
@@ -53,6 +53,8 @@ export default function HistoriaClinica({ pacienteId, nombrePaciente }: { pacien
           </div>
         ))}
       </div>
+
+      <DocumentosPaciente pacienteId={pacienteId} />
 
       {/* Consultas */}
       <div className="fila" style={{ marginTop: 14, marginBottom: 6 }}>
@@ -129,6 +131,72 @@ function Alergias({ pacienteId, alergias, onCambio }: { pacienteId: number; aler
           }}>Guardar</button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------------- Documentos y pruebas del paciente ---------------- */
+const CATEGORIAS_DOC: Record<string, string> = {
+  foto_antes: "📷 Foto antes", foto_despues: "📷 Foto después",
+  consentimiento: "✍ Consentimiento firmado", prueba: "🧪 Prueba/analítica",
+  informe: "📄 Informe", otro: "📎 Otro",
+};
+
+function DocumentosPaciente({ pacienteId }: { pacienteId: number }) {
+  const [lista, setLista] = useState<any[]>([]);
+  const [subiendo, setSubiendo] = useState(false);
+  const [categoria, setCategoria] = useState("foto_antes");
+  const [titulo, setTitulo] = useState("");
+
+  const cargar = () => api<any[]>(`documentos-paciente?paciente_id=${pacienteId}`).then(setLista).catch(() => {});
+  useEffect(() => { cargar(); }, [pacienteId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function subir(file: File) {
+    if (!titulo.trim()) { alert("Pon un título al documento (ej.: 'Antes — labios, sesión 1')"); return; }
+    setSubiendo(true);
+    try {
+      const fd = new FormData();
+      fd.append("archivo", file);
+      fd.append("paciente_id", String(pacienteId));
+      fd.append("categoria", categoria);
+      fd.append("titulo", titulo.trim());
+      const res = await fetch("/api/documentos-paciente", {
+        method: "POST", headers: { Authorization: `Bearer ${getToken()}` }, body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Error al subir");
+      setTitulo(""); cargar();
+    } catch (e: any) { alert(e.message); }
+    finally { setSubiendo(false); }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 12 }}>
+      <p className="nota" style={{ marginTop: 0 }}>
+        <b>Documentos y pruebas</b> — fotos antes/después, consentimientos de tratamiento firmados, analíticas… (cada lectura queda registrada)
+      </p>
+      {lista.map((d) => (
+        <div className="linea-cita" key={d.id}>
+          <span className="chip">{CATEGORIAS_DOC[d.categoria] ?? d.categoria}</span>
+          <span>{d.titulo}<em> · {new Date(d.created_at).toLocaleDateString("es-ES")} · {d.subido_por}</em></span>
+          <button className="btn mini suave" onClick={async () => {
+            try { const { url } = await api<{ url: string }>(`documentos-paciente/${d.id}/ver`); window.open(url, "_blank"); }
+            catch (e: any) { alert(e.message); }
+          }}>👁 Ver</button>
+        </div>
+      ))}
+      {lista.length === 0 && <p className="nota" style={{ margin: 0 }}>Sin documentos</p>}
+      <div className="fila" style={{ marginTop: 10, marginBottom: 0, flexWrap: "wrap" }}>
+        <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={{ maxWidth: 210 }}>
+          {Object.entries(CATEGORIAS_DOC).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+        <input placeholder="Título (ej.: Antes — labios, sesión 1)" value={titulo} onChange={(e) => setTitulo(e.target.value)} style={{ flex: 1, minWidth: 200 }} />
+        <label className="btn mini oro" style={{ cursor: "pointer" }}>
+          {subiendo ? "Subiendo…" : "⬆ Subir (PDF/foto)"}
+          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic" style={{ display: "none" }} disabled={subiendo}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) subir(f); e.target.value = ""; }} />
+        </label>
+      </div>
     </div>
   );
 }
@@ -258,6 +326,7 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], ale
   const [error, setError] = useState("");
   const esMedico = ambito !== null;
   const alergiasActivas = alergias.filter((a: any) => a.estado !== "descartada");
+  const inicioRegistro = useRef(Date.now()); // cronómetro silencioso (no visible; métricas de dirección)
 
   useEffect(() => {
     api<any[]>("areas").then((a) => {
@@ -296,6 +365,7 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], ale
           estado: firmar ? "firmada" : "borrador",
           diagnosticos: diags.map((d) => ({ codigo: d.codigo, estado: d.estado })),
           constantes: Object.entries(constVals).filter(([, v]) => v !== "").map(([id, valor]) => ({ constante_id: Number(id), valor })),
+          duracion_seg: Math.round((Date.now() - inicioRegistro.current) / 1000),
         },
       });
       onCerrar(true);

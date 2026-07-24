@@ -7,9 +7,13 @@ interface Datos { pacientesTotal: number; escaladosPendientes: number; mensajes7
 
 export default function Metricas() {
   const [d, setD] = useState<Datos | null>(null);
+  const [rend, setRend] = useState<any | null>(null); // solo llega para dirección/admin
   const [tip, setTip] = useState<{ x: number; y: number; texto: string } | null>(null);
 
-  useEffect(() => { api<Datos>("metricas").then(setD).catch(() => {}); }, []);
+  useEffect(() => {
+    api<Datos>("metricas").then(setD).catch(() => {});
+    api<any>("metricas-medicos").then(setRend).catch(() => {}); // 403 para el resto: se oculta
+  }, []);
   if (!d) return <p className="nota">Cargando métricas…</p>;
 
   const max = Math.max(1, ...d.semanas.map((s) => s.total));
@@ -62,6 +66,63 @@ export default function Metricas() {
           </tbody>
         </table>
       </div>
+
+      {/* ═══ Rendimiento (solo dirección/admin; incluye el cronómetro silencioso de consultas) ═══ */}
+      {rend && (
+        <>
+          <h2 className="seccion" style={{ marginTop: 26 }}>Actividad por médico · últimos 90 días</h2>
+          <p className="nota">El tiempo de consulta se mide automáticamente al registrar cada consulta (el médico no lo ve). Úsalo como orientación de carga y rendimiento, no como control minuto a minuto.</p>
+          <table className="t">
+            <thead><tr><th>Médico</th><th>Consultas</th><th>⏱ Media consulta</th><th>Citas completadas</th><th>Horas en citas</th><th>Pacientes asignados</th></tr></thead>
+            <tbody>
+              {rend.medicos.map((m: any) => (
+                <tr key={m.medico_id}>
+                  <td>{m.nombre}{m.tipo === "enfermera" ? " · Enf." : ""}</td>
+                  <td>{m.consultas_90d}</td>
+                  <td>{m.media_min_consulta != null ? `${m.media_min_consulta} min` : "—"}</td>
+                  <td>{m.citas_completadas_90d}</td>
+                  <td>{m.horas_citas_90d} h</td>
+                  <td>{m.pacientes_asignados}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <h2 className="seccion" style={{ marginTop: 22 }}>Rendimiento por área</h2>
+          <table className="t">
+            <thead><tr><th>Área</th><th>Consultas</th><th>⏱ Media consulta</th><th>Citas completadas</th><th>Horas en citas</th></tr></thead>
+            <tbody>
+              {rend.areas.map((a: any) => (
+                <tr key={a.area_id}>
+                  <td>{a.nombre}</td>
+                  <td>{a.consultas_90d}</td>
+                  <td>{a.media_min_consulta != null ? `${a.media_min_consulta} min` : "—"}</td>
+                  <td>{a.citas_completadas_90d}</td>
+                  <td>{a.horas_citas_90d} h</td>
+                </tr>
+              ))}
+              {rend.areas.length === 0 && <tr><td colSpan={5} className="vacio">Sin actividad todavía</td></tr>}
+            </tbody>
+          </table>
+
+          <h2 className="seccion" style={{ marginTop: 22 }}>Rendimiento por tratamiento</h2>
+          <table className="t">
+            <thead><tr><th>Tratamiento</th><th>Área</th><th>Citas completadas</th><th>Horas totales</th><th>⏱ Media por cita</th></tr></thead>
+            <tbody>
+              {rend.tratamientos.map((t: any) => (
+                <tr key={t.tratamiento_id}>
+                  <td>{t.nombre}</td>
+                  <td>{t.area ?? "—"}</td>
+                  <td>{t.citas_completadas_90d}</td>
+                  <td>{t.horas_90d} h</td>
+                  <td>{t.media_min_cita != null ? `${t.media_min_cita} min` : "—"}</td>
+                </tr>
+              ))}
+              {rend.tratamientos.length === 0 && <tr><td colSpan={5} className="vacio">Sin citas completadas todavía</td></tr>}
+            </tbody>
+          </table>
+        </>
+      )}
     </>
   );
 }

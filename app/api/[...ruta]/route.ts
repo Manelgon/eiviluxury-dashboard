@@ -1142,7 +1142,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       }
 
       if (metodo === "POST") {
-        const { paciente_id, area_id, motivo, exploracion, juicio_clinico, plan, tratamiento, notas, cita_id, estado, diagnosticos, constantes } = body;
+        const { paciente_id, area_id, motivo, exploracion, juicio_clinico, plan, tratamiento, notas, cita_id, estado, diagnosticos, constantes, duracion_seg } = body;
         if (!paciente_id || !area_id || !motivo?.trim()) return err("Faltan paciente, área o motivo");
         let medicoId = body.medico_id;
         if (!ambito.total) {
@@ -1157,6 +1157,8 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           motivo: motivo.trim(), exploracion: exploracion ?? null, juicio_clinico: juicio_clinico ?? null, plan: plan ?? null,
           tratamiento: tratamiento ?? null, notas: notas ?? null,
           estado: estado === "firmada" ? "firmada" : "borrador",
+          // Cronómetro SILENCIOSO: el médico no lo ve; dirección lo analiza en Métricas
+          duracion_seg: Number.isFinite(Number(duracion_seg)) ? Math.min(14400, Math.max(0, Math.round(Number(duracion_seg)))) : null,
         }).select("id").single();
         if (error) return err(error.message, 500);
 
@@ -1278,6 +1280,137 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         return json({ ok: true });
       }
       return err("Método no soportado", 405);
+    }
+
+    // ---------- Documentos del paciente (fotos antes/después, consentimientos, pruebas) ----------
+    case "documentos-paciente": {
+      const ambito = await ambitoClinico(u);
+      if (!ambito) return errAmbito(u);
+
+      if (metodo === "GET" && r1 && r2 === "ver") {
+        const { data: doc } = await db().from("paciente_documentos").select("paciente_id, path, titulo").eq("id", Number(r1)).maybeSingle();
+        if (!doc) return err("Documento no encontrado", 404);
+        if (!(await puedeVerPaciente(ambito, doc.paciente_id))) return err("Este paciente no está asignado a ti", 403);
+        const { data: signed, error } = await db().storage.from("docs-pacientes").createSignedUrl(doc.path, 300);
+        if (error) return err(error.message, 500);
+        void logAccesoHistoria(u, doc.paciente_id, `documento:${r1}:ver`, { titulo: doc.titulo });
+        return json({ url: signed.signedUrl });
+      }
+      if (metodo === "GET") {
+        const pacienteId = Number(q.get("paciente_id"));
+        if (!pacienteId) return err("Falta paciente_id");
+        if (!(await puedeVerPaciente(ambito, pacienteId))) return err("Este paciente no está asignado a ti", 403);
+        const { data, error } = await db().from("paciente_documentos")
+          .select("id, categoria, titulo, mime, bytes, subido_por, consulta_id, created_at")
+          .eq("paciente_id", pacienteId).order("created_at", { ascending: false });
+        if (error) return err(error.message, 500);
+        void logAccesoHistoria(u, pacienteId, "documentos:listar", { total: data?.length ?? 0 });
+        return json(data);
+      }
+      if (metodo === "POST") {
+        const fd = await req.formData().catch(() => null);
+        const archivo = fd?.get("archivo") as File | null;
+        const pacienteId = Number(fd?.get("paciente_id"));
+        const categoria = String(fd?.get("categoria") ?? "otro");
+        const titulo = String(fd?.get("titulo") ?? "").trim();
+        const consultaId = fd?.get("consulta_id") ? Number(fd?.get("consulta_id")) : null;
+        if (!archivo || !pacienteId || !titulo) return err("Faltan el archivo, el paciente o el título");
+        if (!(await puedeVerPaciente(ambito, pacienteId))) return err("Este paciente no está asignado a ti", 403);
+        if (archivo.size > 15 * 1024 * 1024) return err("Máximo 15 MB");
+        const ext = (archivo.name.split(".").pop() ?? "").toLowerCase();
+        if (!["pdf", "jpg", "jpeg", "png", "webp", "heic"].includes(ext)) return err("Formato no válido: PDF, JPG, PNG, WEBP o HEIC");
+        const path = `paciente-${pacienteId}/${Date.now()}-${categoria}.${ext}`;
+        const buf = Buffer.from(await archivo.arrayBuffer());
+        const { error: eU } = await db().storage.from("docs-pacientes")
+          .upload(path, buf, { contentType: archivo.type || "application/octet-stream" });
+        if (eU) return err(eU.message, 500);
+        const { data: fila, error } = await db().from("paciente_documentos").insert({
+          paciente_id: pacienteId, consulta_id: consultaId, categoria, titulo,
+          path, mime: archivo.type || null, bytes: archivo.size, subido_por: u.email,
+        }).select("id").single();
+        if (error) return err(error.message, 500);
+        void auditar(u, "paciente.documento.subir", { tipo: "paciente", id: String(pacienteId) },
+          { documento_id: fila.id, categoria, titulo, bytes: archivo.size });
+        void logAccesoHistoria(u, pacienteId, `documento:${fila.id}:subir`, { categoria, titulo });
+        return json({ ok: true, id: fila.id });
+      }
+      if (metodo === "DELETE" && r1) {
+        if (!puede(u, "usuarios")) return err("Solo dirección o admin pueden eliminar documentos clínicos", 403);
+        const { data: doc } = await db().from("paciente_documentos").select("*").eq("id", Number(r1)).maybeSingle();
+        if (!doc) return err("Documento no encontrado", 404);
+        await db().storage.from("docs-pacientes").remove([doc.path]);
+        const { error } = await db().from("paciente_documentos").delete().eq("id", Number(r1));
+        if (error) return err(error.message, 500);
+        void auditar(u, "paciente.documento.eliminar", { tipo: "paciente", id: String(doc.paciente_id) },
+          { eliminado: { categoria: doc.categoria, titulo: doc.titulo, path: doc.path } });
+        return json({ ok: true });
+      }
+      return err("Método no soportado", 405);
+    }
+
+    // ---------- Actividad y rendimiento (SOLO dirección/admin — cronómetro silencioso) ----------
+    case "metricas-medicos": {
+      if (!["admin", "direccion"].includes(u.rol)) return err("Solo para dirección o admin", 403);
+      const desde = new Date(Date.now() - 90 * 86400_000).toISOString();
+      const [{ data: meds }, { data: cons }, { data: citas }, { data: asig }, { data: areasL }, { data: tratsL }] = await Promise.all([
+        db().from("medicos").select("id, nombre, tipo").eq("activo", true).order("nombre"),
+        db().from("consultas").select("medico_id, area_id, duracion_seg").gte("fecha", desde),
+        db().from("citas").select("medico_id, tratamiento_id, inicio, fin").eq("estado", "completada").gte("inicio", desde),
+        db().from("paciente_medico_area").select("medico_id").eq("activo", true),
+        db().from("areas").select("id, nombre"),
+        db().from("tratamientos").select("id, nombre, area_id"),
+      ]);
+      const horasDe = (arr: any[]) =>
+        Math.round(arr.reduce((t: number, c: any) => t + (new Date(c.fin).getTime() - new Date(c.inicio).getTime()), 0) / 3600_000 * 10) / 10;
+      const mediaMin = (arr: any[]) => {
+        const con = arr.filter((c: any) => c.duracion_seg != null);
+        return con.length ? Math.round(con.reduce((t: number, c: any) => t + c.duracion_seg, 0) / con.length / 60) : null;
+      };
+
+      const medicos = (meds ?? []).map((m: any) => {
+        const suyas = (cons ?? []).filter((c: any) => c.medico_id === m.id);
+        const citasM = (citas ?? []).filter((c: any) => c.medico_id === m.id);
+        return {
+          medico_id: m.id, nombre: m.nombre, tipo: m.tipo,
+          consultas_90d: suyas.length,
+          media_min_consulta: mediaMin(suyas),
+          citas_completadas_90d: citasM.length,
+          horas_citas_90d: horasDe(citasM),
+          pacientes_asignados: (asig ?? []).filter((a: any) => a.medico_id === m.id).length,
+        };
+      });
+
+      // Rendimiento por ÁREA (consultas del área + citas de tratamientos del área)
+      const areas = (areasL ?? []).map((a: any) => {
+        const consA = (cons ?? []).filter((c: any) => c.area_id === a.id);
+        const tratIds = (tratsL ?? []).filter((t: any) => t.area_id === a.id).map((t: any) => t.id);
+        const citasA = (citas ?? []).filter((c: any) => tratIds.includes(c.tratamiento_id));
+        return {
+          area_id: a.id, nombre: a.nombre,
+          consultas_90d: consA.length,
+          media_min_consulta: mediaMin(consA),
+          citas_completadas_90d: citasA.length,
+          horas_citas_90d: horasDe(citasA),
+        };
+      }).filter((a: any) => a.consultas_90d > 0 || a.citas_completadas_90d > 0);
+
+      // Rendimiento por TRATAMIENTO (citas completadas)
+      const tratamientos = (tratsL ?? []).map((t: any) => {
+        const citasT = (citas ?? []).filter((c: any) => c.tratamiento_id === t.id);
+        const mediaCita = citasT.length
+          ? Math.round(citasT.reduce((s: number, c: any) => s + (new Date(c.fin).getTime() - new Date(c.inicio).getTime()), 0) / citasT.length / 60_000)
+          : null;
+        return {
+          tratamiento_id: t.id, nombre: t.nombre,
+          area: (areasL ?? []).find((a: any) => a.id === t.area_id)?.nombre ?? null,
+          citas_completadas_90d: citasT.length,
+          horas_90d: horasDe(citasT),
+          media_min_cita: mediaCita,
+        };
+      }).filter((t: any) => t.citas_completadas_90d > 0)
+        .sort((a: any, b: any) => b.citas_completadas_90d - a.citas_completadas_90d);
+
+      return json({ medicos, areas, tratamientos });
     }
 
     // ---------- Catálogo de constantes clínicas ----------
