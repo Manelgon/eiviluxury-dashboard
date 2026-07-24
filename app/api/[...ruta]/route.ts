@@ -10,7 +10,7 @@ const json = (data: unknown, status = 200) => NextResponse.json(data, { status }
 const err = (mensaje: string, status = 400) => json({ error: mensaje }, status);
 
 async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> {
-  const [r0, r1] = ruta;
+  const [r0, r1, r2] = ruta;
   const metodo = req.method;
   const body = metodo === "GET" || metodo === "DELETE" ? {} : await req.json().catch(() => ({}));
   const q = req.nextUrl.searchParams;
@@ -171,6 +171,36 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (error) return err(error.message, 500);
         return json(data);
       }
+      // Exportación completa (derechos de acceso y portabilidad)
+      if (metodo === "GET" && r1 && r2 === "exportar") {
+        if (!puede(u, "gestion")) return err("Sin permiso", 403);
+        const { data: paciente, error: eP } = await db().from("pacientes").select("*").eq("id", Number(r1)).maybeSingle();
+        if (eP || !paciente) return err("Paciente no encontrado", 404);
+        const [citas, consentimientos, derechos, chat] = await Promise.all([
+          db().from("citas")
+            .select("inicio, fin, estado, confirmada_paciente, notas, creada_via, medicos(nombre), tratamientos(nombre)")
+            .eq("paciente_id", paciente.id).order("inicio"),
+          db().from("consentimientos")
+            .select("tipo, aceptado, texto, canal, created_at, revocado_at")
+            .eq("paciente_id", paciente.id).order("created_at"),
+          db().from("derechos_arco")
+            .select("tipo_derecho, descripcion, canal, estado, created_at, resolucion_at")
+            .or(`paciente_id.eq.${paciente.id},contacto.eq.${paciente.telefono}`)
+            .order("created_at"),
+          db().from("historial_chat")
+            .select("message, created_at")
+            .eq("session_id", paciente.telefono).order("created_at").limit(3000),
+        ]);
+        void auditar(u, "paciente.exportar", { tipo: "paciente", id: r1, label: paciente.telefono });
+        return json({
+          generado: new Date().toISOString(),
+          paciente,
+          citas: citas.data ?? [],
+          consentimientos: consentimientos.data ?? [],
+          solicitudes_derechos: derechos.data ?? [],
+          conversaciones: chat.data ?? [],
+        });
+      }
       if (metodo === "GET" && r1) {
         const { data: paciente, error } = await db()
           .from("pacientes")
@@ -286,14 +316,36 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (metodo === "GET") {
         const { data, error } = await db()
           .from("derechos_arco")
-          .select("id, paciente_id, nombre, contacto, tipo_derecho, descripcion, canal, estado, notas_admin, resolucion_at, created_at")
+          .select("id, paciente_id, nombre, contacto, tipo_derecho, descripcion, canal, estado, notas_admin, resolucion_at, created_at, identidad_verificada, identidad_verificada_por, identidad_verificada_at, identidad_metodo")
           .order("created_at", { ascending: false })
           .limit(200);
         return error ? err(error.message, 500) : json(data);
       }
       if (metodo === "PATCH" && r1) {
+        const { data: fila } = await db()
+          .from("derechos_arco")
+          .select("tipo_derecho, identidad_verificada")
+          .eq("id", Number(r1)).maybeSingle();
+        if (!fila) return err("Solicitud no encontrada", 404);
+
         const cambios: Record<string, unknown> = {};
+        // Verificación de identidad (art. 12.6 RGPD)
+        if (body.verificar_identidad === true) {
+          cambios.identidad_verificada = true;
+          cambios.identidad_verificada_por = u.email;
+          cambios.identidad_verificada_at = new Date().toISOString();
+          cambios.identidad_metodo = body.metodo ?? null;
+        }
         if (body.estado && ["pendiente", "en_proceso", "resuelta"].includes(body.estado)) {
+          // Acceso y portabilidad implican ENTREGAR datos: exigen identidad verificada
+          const exigeIdentidad = ["acceso", "portabilidad"].includes(fila.tipo_derecho);
+          const verificada = fila.identidad_verificada || cambios.identidad_verificada === true;
+          if (body.estado === "resuelta" && exigeIdentidad && !verificada) {
+            return err(
+              "No se puede resolver una solicitud de acceso/portabilidad sin verificar antes la identidad del solicitante (art. 12.6 RGPD). Usa el botón 'Verificar identidad'.",
+              409
+            );
+          }
           cambios.estado = body.estado;
           if (body.estado === "resuelta") cambios.resolucion_at = new Date().toISOString();
         }
@@ -301,7 +353,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (Object.keys(cambios).length === 0) return err("Nada que actualizar");
         const { error } = await db().from("derechos_arco").update(cambios).eq("id", Number(r1));
         if (error) return err(error.message, 500);
-        void auditar(u, "rgpd.derecho_arco.cambiar_estado", { tipo: "derecho_arco", id: r1 }, cambios);
+        void auditar(u, "rgpd.derecho_arco.actualizar", { tipo: "derecho_arco", id: r1 }, cambios);
         return json({ ok: true });
       }
       return err("Método no soportado", 405);

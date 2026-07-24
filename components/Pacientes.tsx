@@ -180,6 +180,11 @@ function FichaPaciente({ paciente, onCerrar }: { paciente: any; onCerrar: () => 
     <div className="modal-bg" onClick={onCerrar}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3>Ficha · {paciente.telefono}</h3>
+        <div className="fila" style={{ marginBottom: 10 }}>
+          <button className="btn mini suave" onClick={() => exportarPaciente(paciente.id, "informe")}>🖨 Informe imprimible</button>
+          <button className="btn mini suave" onClick={() => exportarPaciente(paciente.id, "json")}>⬇ Exportar JSON</button>
+          <span className="nota" style={{ margin: 0 }}>Para derechos de acceso y portabilidad (queda auditado)</span>
+        </div>
         <div className="campo" style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}><label>Nombre</label><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} /></div>
           <div style={{ flex: 1 }}><label>Apellidos</label><input value={f.apellidos} onChange={(e) => setF({ ...f, apellidos: e.target.value })} /></div>
@@ -213,6 +218,71 @@ function FichaPaciente({ paciente, onCerrar }: { paciente: any; onCerrar: () => 
       </div>
     </div>
   );
+}
+
+async function exportarPaciente(id: number, formato: "json" | "informe") {
+  try {
+    const d = await api<any>(`pacientes/${id}/exportar`);
+    if (formato === "json") {
+      const blob = new Blob([JSON.stringify(d, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `eiviluxury-paciente-${id}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      return;
+    }
+    const w = window.open("", "_blank");
+    if (!w) { alert("El navegador bloqueó la ventana del informe"); return; }
+    w.document.write(htmlInforme(d));
+    w.document.close();
+  } catch (e: any) { alert(e.message); }
+}
+
+function htmlInforme(d: any): string {
+  const f = (iso: string) => new Date(iso).toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Madrid" });
+  const esc = (s: any) => String(s ?? "—").replace(/</g, "&lt;");
+  const p = d.paciente;
+  const filas = (arr: any[], fn: (x: any) => string) => arr.length ? arr.map(fn).join("") : `<tr><td colspan="9" style="color:#8d8577">Sin registros</td></tr>`;
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Informe de datos · ${esc(p.nombre)} ${esc(p.apellidos ?? "")}</title>
+<style>
+body{font-family:'Segoe UI',sans-serif;color:#1c1a17;background:#fff;max-width:820px;margin:24px auto;padding:0 20px;font-size:13.5px;line-height:1.5}
+h1{font-size:20px;letter-spacing:4px;font-weight:300}h1 b{font-weight:600}
+h2{font-size:12px;letter-spacing:3px;text-transform:uppercase;color:#b3925f;margin:26px 0 8px;border-bottom:1px solid #e8e0d3;padding-bottom:4px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:#8d8577;font-size:10.5px;text-transform:uppercase;letter-spacing:1px;padding:5px 8px;border-bottom:1px solid #e8e0d3}
+td{padding:5px 8px;border-bottom:1px solid #f1ece2;vertical-align:top}
+.meta{color:#8d8577;font-size:11.5px}
+@media print{body{margin:0}}
+</style></head><body onload="window.print()">
+<h1>EIVI<b>LUXURY</b> · Informe de datos personales</h1>
+<p class="meta">Generado el ${f(d.generado)} · En respuesta al ejercicio de derechos de acceso/portabilidad (art. 15 y 20 RGPD)</p>
+<h2>Datos identificativos</h2>
+<table>
+<tr><td><b>Nombre</b></td><td>${esc(p.nombre)} ${esc(p.apellidos ?? "")}</td></tr>
+<tr><td><b>Teléfono (WhatsApp)</b></td><td>${esc(p.telefono)}</td></tr>
+<tr><td><b>Teléfono de contacto</b></td><td>${esc(p.telefono_contacto)}</td></tr>
+<tr><td><b>Email</b></td><td>${esc(p.email)}</td></tr>
+<tr><td><b>Fecha de alta</b></td><td>${f(p.created_at)}</td></tr>
+</table>
+<h2>Consentimientos</h2>
+<table><tr><th>Finalidad</th><th>Decisión</th><th>Fecha</th><th>Canal</th><th>Revocado</th></tr>
+${filas(d.consentimientos, (c: any) => `<tr><td>${esc(c.tipo)}</td><td>${c.aceptado ? "Aceptado" : "Rechazado"}</td><td>${f(c.created_at)}</td><td>${esc(c.canal)}</td><td>${c.revocado_at ? f(c.revocado_at) : "—"}</td></tr>`)}
+</table>
+<h2>Citas</h2>
+<table><tr><th>Fecha y hora</th><th>Profesional</th><th>Tratamiento</th><th>Estado</th></tr>
+${filas(d.citas, (c: any) => `<tr><td>${f(c.inicio)}</td><td>${esc(c.medicos?.nombre)}</td><td>${esc(c.tratamientos?.nombre)}</td><td>${esc(c.estado)}</td></tr>`)}
+</table>
+<h2>Solicitudes de derechos</h2>
+<table><tr><th>Fecha</th><th>Derecho</th><th>Canal</th><th>Estado</th></tr>
+${filas(d.solicitudes_derechos, (s: any) => `<tr><td>${f(s.created_at)}</td><td>${esc(s.tipo_derecho)}</td><td>${esc(s.canal)}</td><td>${esc(s.estado)}</td></tr>`)}
+</table>
+<h2>Conversaciones por WhatsApp (${d.conversaciones.length} mensajes)</h2>
+<table><tr><th>Fecha</th><th>Quién</th><th>Mensaje</th></tr>
+${filas(d.conversaciones, (m: any) => `<tr><td style="white-space:nowrap">${f(m.created_at)}</td><td>${m.message?.role === "user" ? "Paciente" : "Alexia"}</td><td>${esc(m.message?.content)}</td></tr>`)}
+</table>
+<p class="meta" style="margin-top:26px">Clínica EiviLuxury · Carrer Canaries 41, Eivissa · 971 312 902 — Documento generado desde el panel de gestión; la exportación queda registrada en la auditoría del sistema.</p>
+</body></html>`;
 }
 
 const DIAS_PAPELERA = 30; // ventana antes de la anonimización automática (RETENCION_PAPELERA_DIAS)

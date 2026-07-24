@@ -27,15 +27,28 @@ export default function Derechos() {
         Para una supresión con obligación de conservar historial: usar <b>Anonimizar</b> en la papelera de pacientes (solo admin/dirección).
       </p>
       <table className="t">
-        <thead><tr><th>Fecha</th><th>Solicitante</th><th>Derecho</th><th>Detalle</th><th>Canal</th><th>Estado</th><th>Notas</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Solicitante</th><th>Derecho</th><th>Detalle</th><th>Identidad</th><th>Estado</th><th>Notas</th></tr></thead>
         <tbody>
           {lista.map((d) => (
             <tr key={d.id} style={{ opacity: d.estado === "resuelta" ? 0.6 : 1 }}>
-              <td style={{ whiteSpace: "nowrap" }}>{fmtFechaHora(d.created_at)}</td>
+              <td style={{ whiteSpace: "nowrap" }}>{fmtFechaHora(d.created_at)}<br /><small style={{ color: "var(--muted)" }}>{d.canal}</small></td>
               <td>{d.nombre ?? "—"}<br /><small style={{ color: "var(--muted)" }}>{d.contacto}</small></td>
               <td><span className="chip">{TIPO_L[d.tipo_derecho] ?? d.tipo_derecho}</span></td>
-              <td style={{ maxWidth: 260 }}>{d.descripcion ?? "—"}</td>
-              <td>{d.canal}</td>
+              <td style={{ maxWidth: 220 }}>{d.descripcion ?? "—"}</td>
+              <td>
+                {d.identidad_verificada ? (
+                  <span className="chip confirmada" title={`${d.identidad_verificada_por} · ${d.identidad_metodo ?? ""}`}>
+                    ✓ verificada
+                  </span>
+                ) : (
+                  <button className="btn mini suave" onClick={async () => {
+                    const metodo = prompt("¿Cómo se ha verificado la identidad? (ej: DNI en persona, videollamada, respuesta desde el email registrado)");
+                    if (!metodo) return;
+                    await api(`derechos/${d.id}`, { method: "PATCH", body: { verificar_identidad: true, metodo } });
+                    cargar();
+                  }}>Verificar identidad</button>
+                )}
+              </td>
               <td style={{ width: 130 }}>
                 <select value={d.estado} onChange={(e) => cambiar(d.id, e.target.value)}>
                   <option value="pendiente">pendiente</option>
