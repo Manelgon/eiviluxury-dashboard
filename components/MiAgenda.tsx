@@ -29,7 +29,7 @@ export default function MiAgenda({ seccion = "todo" }: { seccion?: "horario" | "
     <>
       {seccion !== "ausencias" && (
         <>
-          <Antelacion actual={datos.ficha?.antelacion_horas ?? 0} onCambio={cargar} />
+          <Antelacion actual={datos.ficha?.antelacion_horas ?? 0} tolerancia={datos.ficha?.tolerancia_fin_min ?? 0} onCambio={cargar} />
           <SemanaTipo horarios={datos.horarios} onCambio={cargar} />
         </>
       )}
@@ -38,25 +38,40 @@ export default function MiAgenda({ seccion = "todo" }: { seccion?: "horario" | "
   );
 }
 
-/* ---------- Antelación del bot ---------- */
-function Antelacion({ actual, onCambio }: { actual: number; onCambio: () => void }) {
+/* ---------- Reglas de reserva del bot: antelación + tolerancia de cierre ---------- */
+function Antelacion({ actual, tolerancia, onCambio }: { actual: number; tolerancia: number; onCambio: () => void }) {
   const OPCIONES = [
     { h: 0, t: "Al momento (acepto huecos de última hora)" },
     { h: 4, t: "4 horas" }, { h: 12, t: "12 horas" }, { h: 24, t: "24 horas" },
     { h: 48, t: "48 horas" }, { h: 72, t: "3 días" }, { h: 168, t: "1 semana" },
   ];
+  const TOLERANCIAS = [
+    { m: 0, t: "Nada — mis citas acaban dentro de mi horario" },
+    { m: 15, t: "Hasta 15 minutos" }, { m: 30, t: "Hasta 30 minutos" },
+    { m: 45, t: "Hasta 45 minutos" }, { m: 60, t: "Hasta 1 hora" },
+  ];
+  const guardar = async (body: Record<string, number>) => {
+    try { await api("mi-agenda", { method: "PATCH", body }); onCambio(); }
+    catch (er: any) { alert(er.message); }
+  };
   return (
     <div className="card" style={{ marginBottom: 14 }}>
       <p className="nota" style={{ marginTop: 0 }}>
         <b>Antelación mínima de reserva</b> — el bot solo ofrecerá huecos tuyos que empiecen al menos con esta antelación. Las reservas de hoy para hoy quedan marcadas ⚡ y recepción las ve al instante.
       </p>
-      <div className="fila" style={{ marginBottom: 0 }}>
-        <select value={actual} style={{ maxWidth: 340 }} onChange={async (e) => {
-          try { await api("mi-agenda", { method: "PATCH", body: { antelacion_horas: Number(e.target.value) } }); onCambio(); }
-          catch (er: any) { alert(er.message); }
-        }}>
+      <div className="fila">
+        <select value={actual} style={{ maxWidth: 340 }} onChange={(e) => guardar({ antelacion_horas: Number(e.target.value) })}>
           {OPCIONES.map((o) => <option key={o.h} value={o.h}>{o.t}</option>)}
           {!OPCIONES.some((o) => o.h === actual) && <option value={actual}>{actual} horas</option>}
+        </select>
+      </div>
+      <p className="nota">
+        <b>Alargar al final del día</b> — si al cierre de tu tramo queda un hueco corto, ¿aceptas que el bot ofrezca un tratamiento que se pase un poco de tu hora de salida? Ejemplo: sales a las 20:00, quedan 30′ libres y el tratamiento dura 60′ → con tolerancia de 30′ se ofrece (acabarías 20:30). La cita siempre EMPIEZA dentro de tu horario.
+      </p>
+      <div className="fila" style={{ marginBottom: 0 }}>
+        <select value={tolerancia} style={{ maxWidth: 340 }} onChange={(e) => guardar({ tolerancia_fin_min: Number(e.target.value) })}>
+          {TOLERANCIAS.map((o) => <option key={o.m} value={o.m}>{o.t}</option>)}
+          {!TOLERANCIAS.some((o) => o.m === tolerancia) && <option value={tolerancia}>{tolerancia} minutos</option>}
         </select>
       </div>
     </div>

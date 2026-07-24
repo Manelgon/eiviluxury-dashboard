@@ -70,7 +70,21 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       .maybeSingle();
     if (!fila) return err("Tu usuario no tiene acceso al panel", 403);
     void auditar({ user_id: data.user.id, email, nombre: fila.nombre, rol: fila.rol, medico_id: null } as UsuarioPanel, "auth.login", { tipo: "auth", label: email });
-    return json({ token: data.session.access_token, nombre: fila.nombre, rol: fila.rol, medico_id: fila.medico_id ?? null });
+    return json({
+      token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      nombre: fila.nombre, rol: fila.rol, medico_id: fila.medico_id ?? null,
+    });
+  }
+
+  // ---------- Renovación de sesión (sin token: usa el refresh_token) ----------
+  // El access token de Supabase caduca a la hora; el panel lo renueva solo.
+  if (r0 === "refresh" && metodo === "POST") {
+    const { refresh_token } = body;
+    if (!refresh_token) return err("Falta el refresh_token", 400);
+    const { data, error } = await authClient().auth.refreshSession({ refresh_token });
+    if (error || !data.session) return err("Sesión caducada, vuelve a iniciar sesión", 401);
+    return json({ token: data.session.access_token, refresh_token: data.session.refresh_token });
   }
 
   // ---------- Solicitud pública de derechos RGPD (sin token) ----------
@@ -114,7 +128,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       }
       if (metodo === "PATCH" && r1) {
         const cambios: Record<string, unknown> = {};
-        for (const k of ["nombre", "tipo", "activo", "antelacion_horas", "num_colegiado", "dni", "telefono", "email", "fecha_nacimiento", "direccion", "bio"])
+        for (const k of ["nombre", "tipo", "activo", "antelacion_horas", "tolerancia_fin_min", "num_colegiado", "dni", "telefono", "email", "fecha_nacimiento", "direccion", "bio"])
           if (k in body) cambios[k] = body[k];
         // DESACTIVAR: no se puede con citas futuras pendientes — resolverlas primero
         if (cambios.activo === false) {
@@ -927,7 +941,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (metodo === "GET") {
         const [{ data: ficha }, { data: horarios }, { data: bloqueos }, { data: citasProx }] = await Promise.all([
           db().from("medicos")
-            .select("id, nombre, tipo, antelacion_horas, num_colegiado, dni, telefono, email, fecha_nacimiento, direccion, bio, medico_areas(areas(nombre))")
+            .select("id, nombre, tipo, antelacion_horas, tolerancia_fin_min, num_colegiado, dni, telefono, email, fecha_nacimiento, direccion, bio, medico_areas(areas(nombre))")
             .eq("id", u.medico_id).maybeSingle(),
           db().from("horarios").select("id, dia_semana, hora_inicio, hora_fin").eq("medico_id", u.medico_id).order("dia_semana").order("hora_inicio"),
           db().from("bloqueos").select("id, inicio, fin, motivo").eq("medico_id", u.medico_id).gte("fin", new Date().toISOString()).order("inicio"),
@@ -942,6 +956,11 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           const horas = Number(body.antelacion_horas);
           if (!Number.isFinite(horas) || horas < 0 || horas > 336) return err("Antelación no válida (0 a 336 horas)");
           cambios.antelacion_horas = horas;
+        }
+        if ("tolerancia_fin_min" in body) {
+          const min = Number(body.tolerancia_fin_min);
+          if (!Number.isFinite(min) || min < 0 || min > 120) return err("Tolerancia no válida (0 a 120 minutos)");
+          cambios.tolerancia_fin_min = min;
         }
         // El médico solo edita sus datos de CONTACTO. Lo identificativo (nombre,
         // nº colegiado, DNI, nacimiento, áreas, tipo) lo cambia solo dirección.

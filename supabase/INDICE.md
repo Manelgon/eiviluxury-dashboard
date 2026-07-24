@@ -19,6 +19,7 @@ Proyecto Supabase: `zohkencmpagiwxyljsiq` · Requiere haber aplicado antes los S
 | 18 | `patch-mi-agenda.sql` | Mi agenda del médico freelancer: `antelacion_horas` en medicos, `reactiva` (⚡ hoy-para-hoy) y `enfermera_id` (apoyo) en citas, `requiere_enfermeria` en tratamientos, tabla `avisos` (cola de WhatsApp proactivo del bot) | ✅ |
 | 19 | `patch-ficha-paciente.sql` | Ficha completa del paciente (SANIAN): `cip` UUID interno, dni/fecha_nacimiento/direccion/sexo (los completa recepción), `alta_completa` (el bot reserva con alta parcial), vista `pacientes_bot` (el bot solo lee contacto/comercial, nunca DNI ni dirección ni datos clínicos) | ✅ |
 | 20 | `patch-vinculo-unico.sql` | Índice único: una ficha de médico solo puede vincularse a UN usuario del panel (la API además la hace inmutable una vez fijada) | ✅ |
+| 21 | `patch-tolerancia-cierre.sql` | `medicos.tolerancia_fin_min` (0-120): minutos que el médico acepta alargar al final de su tramo para que el bot ofrezca el último hueco del día aunque el tratamiento se pase un poco. Lo ajusta él en Mi perfil | ✅ |
 
 > Nota: los patches 1-9 ya aplicados conservan la nomenclatura antigua ("cliente") en su texto — NO se editan (regla del índice). El nombre actual de las tablas es el que fija el patch 10.
 

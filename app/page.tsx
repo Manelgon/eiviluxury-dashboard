@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api, setToken, getToken } from "@/components/api";
+import { api, setToken, setRefresh, getToken } from "@/components/api";
 import Inicio from "@/components/Inicio";
 import Agenda from "@/components/Agenda";
 import Pacientes from "@/components/Pacientes";
@@ -129,10 +129,11 @@ function Login({ onOk }: { onOk: (m: Me) => void }) {
     e.preventDefault();
     setEnviando(true); setError("");
     try {
-      const r = await api<{ token: string; nombre: string; rol: string; medico_id?: number | null }>("login", {
+      const r = await api<{ token: string; refresh_token?: string; nombre: string; rol: string; medico_id?: number | null }>("login", {
         method: "POST", body: { email, password },
       });
       setToken(r.token);
+      setRefresh(r.refresh_token ?? null);
       onOk({ nombre: r.nombre, rol: r.rol, medico_id: r.medico_id ?? null });
     } catch (err: any) {
       setError(err.message);
