@@ -235,12 +235,23 @@ function Usuarios({ rolActual }: { rolActual: string }) {
                   {[...new Set([us.rol, ...ROLES])].map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
               </td>
-              <td style={{ width: 180 }}>
+              <td style={{ width: 200 }}>
                 {["medico", "enfermera"].includes(us.rol) ? (
-                  <select defaultValue={us.medico_id ?? ""} onChange={(e) => api(`usuarios/${us.user_id}`, { method: "PATCH", body: { medico_id: e.target.value ? Number(e.target.value) : null } })}>
-                    <option value="">— sin vincular —</option>
-                    {medicos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-                  </select>
+                  us.medico_id ? (
+                    <span title="La vinculación es fija: no se puede cambiar ni quitar">
+                      🔒 {us.medicos?.nombre ?? medicos.find((m) => m.id === us.medico_id)?.nombre ?? `Ficha #${us.medico_id}`}
+                    </span>
+                  ) : (
+                    <select defaultValue="" onChange={(e) => {
+                      if (!e.target.value) return;
+                      if (!confirm("La vinculación con la ficha es DEFINITIVA (no se podrá cambiar). ¿Vincular?")) { e.target.value = ""; return; }
+                      api(`usuarios/${us.user_id}`, { method: "PATCH", body: { medico_id: Number(e.target.value) } })
+                        .then(cargar).catch((er: any) => { alert(er.message); cargar(); });
+                    }}>
+                      <option value="">— sin vincular —</option>
+                      {medicos.filter((m) => !lista.some((x) => x.medico_id === m.id)).map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                    </select>
+                  )
                 ) : "—"}
               </td>
               <td><input type="checkbox" defaultChecked={us.activo} onChange={(e) => api(`usuarios/${us.user_id}`, { method: "PATCH", body: { activo: e.target.checked } }).catch((er: any) => { alert(er.message); cargar(); })} /></td>
@@ -284,7 +295,14 @@ function CrearUsuario({ rolActual, medicos, onCerrar }: { rolActual: string; med
     ...(rolActual === "admin" ? [{ id: "admin", t: "⚙ Admin (técnico)", d: "Todo, incluido conceder rol admin." }] : []),
   ];
   const esSanitario = tipo === "medico" || tipo === "enfermera";
-  const fichasLibres = medicos.filter((m: any) => m.activo && (tipo !== "medico" || m.tipo !== "enfermera") && (tipo !== "enfermera" || m.tipo === "enfermera"));
+  const [vinculados, setVinculados] = useState<number[]>([]);
+  useEffect(() => {
+    // Fichas ya vinculadas a otro usuario: no se pueden volver a vincular
+    api<any[]>("usuarios").then((us) => setVinculados(us.map((x: any) => x.medico_id).filter(Boolean))).catch(() => {});
+  }, []);
+  const fichasLibres = medicos.filter((m: any) =>
+    m.activo && !vinculados.includes(m.id) &&
+    (tipo !== "medico" || m.tipo !== "enfermera") && (tipo !== "enfermera" || m.tipo === "enfermera"));
 
   async function crear() {
     setError("");

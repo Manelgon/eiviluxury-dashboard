@@ -308,7 +308,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         const papelera = q.get("papelera") === "1";
         let cq = db()
           .from("pacientes")
-          .select("id, telefono, telefono_contacto, nombre, apellidos, email, consentimiento_rgpd, activo, created_at, deleted_at")
+          .select("id, cip, telefono, telefono_contacto, nombre, apellidos, email, consentimiento_rgpd, activo, alta_completa, created_at, deleted_at")
           .order("created_at", { ascending: false })
           .limit(100);
         cq = papelera ? cq.not("deleted_at", "is", null) : cq.is("deleted_at", null);
@@ -362,6 +362,41 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           .limit(50);
         return json({ ...paciente, citas: citas ?? [] });
       }
+      // Alta de paciente desde el panel (gente de paso / walk-ins)
+      if (metodo === "POST" && !r1) {
+        if (!puede(u, "gestion")) return err("Sin permiso", 403);
+        const { telefono, nombre, apellidos, email, telefono_contacto, dni, fecha_nacimiento, direccion, sexo, acepta_publicidad } = body;
+        if (!telefono?.trim() || !nombre?.trim()) return err("Faltan el teléfono y el nombre");
+        if (body.consentimiento !== true) return err("Sin el consentimiento de datos personales (dado en persona) no se puede crear al paciente");
+        const tel = String(telefono).replace(/\D/g, "");
+        // Alta completa si recepción ya tiene lo esencial de la ficha
+        const alta_completa = Boolean(nombre?.trim() && apellidos?.trim() && dni?.trim() && fecha_nacimiento);
+        const { data: nuevoP, error } = await db().from("pacientes").insert({
+          telefono: tel,
+          nombre: nombre.trim(), apellidos: apellidos?.trim() || null,
+          email: email?.trim() || null, telefono_contacto: telefono_contacto?.trim() || null,
+          dni: dni?.trim() || null, fecha_nacimiento: fecha_nacimiento || null,
+          direccion: direccion?.trim() || null, sexo: sexo || null,
+          consentimiento_rgpd: true, consentimiento_fecha: new Date().toISOString(),
+          alta_completa,
+        }).select("id, cip").single();
+        if (error) {
+          if (error.code === "23505") return err("Ya existe un paciente con ese teléfono o DNI");
+          return err(error.message, 500);
+        }
+        // Huella RGPD granular (canal panel: consentimiento presencial)
+        const consentimientos = [
+          { paciente_id: nuevoP.id, tipo: "datos_personales", aceptado: true, canal: "panel", texto: "Consentimiento del tratamiento de datos personales otorgado en persona en la clínica y registrado desde el panel" },
+          { paciente_id: nuevoP.id, tipo: "comunicaciones_recordatorios", aceptado: true, canal: "panel", texto: "Acepta recibir recordatorios y comunicaciones operativas de sus citas (registrado en persona)" },
+          ...(typeof acepta_publicidad === "boolean"
+            ? [{ paciente_id: nuevoP.id, tipo: "publicidad", aceptado: acepta_publicidad, canal: "panel", texto: acepta_publicidad ? "Acepta recibir novedades y promociones (registrado en persona)" : "Rechaza recibir publicidad (registrado en persona)" }]
+            : []),
+        ];
+        await db().from("consentimientos").insert(consentimientos);
+        void auditar(u, "paciente.crear", { tipo: "paciente", id: String(nuevoP.id), label: tel },
+          { origen: "panel", nombre: nombre.trim(), alta_completa, con_dni: Boolean(dni) });
+        return json({ ok: true, id: nuevoP.id, cip: nuevoP.cip, alta_completa });
+      }
       if (metodo === "PATCH" && r1) {
         if (!puede(u, "gestion")) return err("Sin permiso", 403);
         // Estado actual del paciente (para la escalera desactivar → eliminar → anonimizar)
@@ -407,11 +442,24 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           void auditar(u, "paciente.restaurar", { tipo: "paciente", id: r1 }, { estaba_en_papelera_desde: actual.deleted_at });
           return json({ ok: true });
         }
-        const permitidos = ["nombre", "apellidos", "email", "telefono_contacto", "idioma", "activo"];
+        const permitidos = ["nombre", "apellidos", "email", "telefono_contacto", "idioma", "activo", "dni", "fecha_nacimiento", "direccion", "sexo"];
         const cambios: Record<string, unknown> = {};
         for (const k of permitidos) if (k in body) cambios[k] = body[k];
+        // Completar el alta (recepción, con el paciente delante): exige la ficha mínima
+        if (body.alta_completa === true) {
+          const { data: fila } = await db().from("pacientes").select("nombre, apellidos, dni, fecha_nacimiento").eq("id", Number(r1)).maybeSingle();
+          const final = { ...fila, ...cambios } as any;
+          if (!final?.nombre || !final?.apellidos || !final?.dni || !final?.fecha_nacimiento)
+            return err("Para completar el alta faltan datos de la ficha: nombre, apellidos, DNI y fecha de nacimiento.");
+          cambios.alta_completa = true;
+        }
         const { error } = await db().from("pacientes").update(cambios).eq("id", Number(r1));
-        if (error) return err(error.message, 500);
+        if (error) {
+          if (error.code === "23505") return err("Ya existe otro paciente con ese DNI");
+          return err(error.message, 500);
+        }
+        if (cambios.alta_completa === true)
+          void auditar(u, "paciente.alta_completada", { tipo: "paciente", id: r1 }, { con_dni: Boolean((cambios.dni ?? true)) });
         // Log con VALORES (no solo nombres de campo). Activo tiene acción propia.
         if ("activo" in cambios && Object.keys(cambios).length === 1) {
           void auditar(u, cambios.activo ? "paciente.reactivar" : "paciente.desactivar",
@@ -666,6 +714,12 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (String(password).length < 8) return err("La contraseña debe tener al menos 8 caracteres");
         if (!["admin", "direccion", "recepcion", "enfermera", "medico"].includes(rol)) return err("Rol no válido");
 
+        // Vincular a ficha EXISTENTE: solo si nadie la tiene ya (vínculo único)
+        if (medico_id) {
+          const { data: ocupada } = await db().from("usuarios_panel").select("email").eq("medico_id", medico_id).limit(1);
+          if ((ocupada?.length ?? 0) > 0)
+            return err(`Esa ficha de médico ya está vinculada al usuario ${ocupada![0].email}. La vinculación es única y fija.`);
+        }
         // 1. Si es médico/enfermera con FICHA NUEVA: crearla primero (si falla, no se crea nada más)
         let fichaId: number | null = medico_id ?? null;
         if (["medico", "enfermera"].includes(rol) && ficha && !medico_id) {
@@ -721,6 +775,19 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         for (const k of ["nombre", "rol", "medico_id", "activo"]) if (k in body) cambios[k] = body[k];
         if (u.rol !== "admin" && cambios.rol === "admin") return err("Solo un admin puede conceder el rol admin", 403);
         if (r1 === u.user_id && cambios.activo === false) return err("No puedes desactivarte a ti mismo");
+        // Vinculación usuario ↔ ficha: se fija UNA vez y no la cambia nadie
+        if ("medico_id" in cambios) {
+          const { data: actualU } = await db().from("usuarios_panel").select("medico_id").eq("user_id", r1).maybeSingle();
+          if (actualU?.medico_id)
+            return err("La vinculación con la ficha de médico es fija: una vez establecida no se puede cambiar ni quitar.", 403);
+          if (cambios.medico_id) {
+            const { data: ocupada } = await db().from("usuarios_panel").select("email").eq("medico_id", cambios.medico_id).limit(1);
+            if ((ocupada?.length ?? 0) > 0)
+              return err(`Esa ficha ya está vinculada al usuario ${ocupada![0].email}. La vinculación es única.`);
+          } else {
+            delete cambios.medico_id; // quitar un vínculo no existe como operación
+          }
+        }
         if (Object.keys(cambios).length > 0) {
           const { error } = await db().from("usuarios_panel").update(cambios).eq("user_id", r1);
           if (error) return err(error.message, 500);
