@@ -108,32 +108,46 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       }
       if (!puede(u, "config")) return err("Sin permiso", 403);
       if (metodo === "POST") {
-        const { nombre, tipo, areas } = body;
-        if (!nombre?.trim()) return err("Falta el nombre del médico");
-        const { data, error } = await db().from("medicos").insert({
-          nombre: nombre.trim(),
-          tipo: tipo === "enfermera" ? "enfermera" : "medico",
-        }).select("id").single();
-        if (error) return err(error.message, 500);
-        const areaIds = (Array.isArray(areas) ? areas : []).map(Number).filter(Boolean);
-        for (const areaId of areaIds) {
-          const { error: eA } = await db().from("medico_areas").insert({ medico_id: data.id, area_id: areaId });
-          if (eA && eA.code !== "23505") console.error("medico_areas:", eA.message);
-        }
-        void auditar(u, "config.medico.crear", { tipo: "medico", id: String(data.id), label: nombre.trim() },
-          { nombre: nombre.trim(), tipo: tipo ?? "medico", areas: areaIds });
-        return json({ ok: true, id: data.id });
+        // Punto único de alta: los médicos se crean SIEMPRE desde Usuarios y permisos
+        // (acceso + ficha + áreas + agenda en una sola operación atómica)
+        return err("Los médicos se crean desde Configuración → Usuarios y permisos (+ Crear usuario → Médico/Enfermería), que da de alta a la vez el acceso, la ficha, sus áreas y su agenda.", 405);
       }
       if (metodo === "PATCH" && r1) {
         const cambios: Record<string, unknown> = {};
         for (const k of ["nombre", "tipo", "activo", "antelacion_horas", "num_colegiado", "dni", "telefono", "email", "fecha_nacimiento", "direccion", "bio"])
           if (k in body) cambios[k] = body[k];
+        // DESACTIVAR: no se puede con citas futuras pendientes — resolverlas primero
+        if (cambios.activo === false) {
+          const { data: futuras } = await db().from("citas")
+            .select("id, inicio, estado, pacientes(nombre, apellidos, telefono), tratamientos(nombre)")
+            .or(`medico_id.eq.${r1},enfermera_id.eq.${r1}`)
+            .in("estado", ["pendiente", "confirmada"])
+            .gte("inicio", new Date().toISOString()).order("inicio");
+          if ((futuras?.length ?? 0) > 0) {
+            return json({
+              error: `No se puede desactivar: tiene ${futuras!.length} cita(s) futuras reservadas. Resuélvelas primero desde la Agenda (Cancelar → lista de espera avisa al paciente) y vuelve a intentarlo.`,
+              citas_conflicto: futuras,
+            }, 409);
+          }
+        }
         if (Object.keys(cambios).length) {
           const { error } = await db().from("medicos").update(cambios).eq("id", Number(r1));
           if (error) {
             if (error.code === "23505") return err("Ya existe un médico con ese DNI o número de colegiado");
             return err(error.message, 500);
           }
+        }
+        // Cascada: al desactivar la ficha se desactiva TODO lo relacionado
+        if (cambios.activo === false) {
+          await db().from("paciente_medico_area").update({ activo: false }).eq("medico_id", Number(r1)).eq("activo", true);
+          await db().from("usuarios_panel").update({ activo: false }).eq("medico_id", Number(r1)).in("rol", ["medico", "enfermera"]);
+          void auditar(u, "config.medico.desactivar_cascada", { tipo: "medico", id: r1 },
+            { desactivado: ["ficha", "asignaciones_pacientes", "usuario_panel"], nota: "horarios y bloqueos se conservan por si se reactiva; el bot y la agenda dejan de ofrecerle al instante" });
+        }
+        // Reactivar: vuelve la ficha y su acceso al panel (las asignaciones de pacientes se reactivan a mano)
+        if (cambios.activo === true) {
+          await db().from("usuarios_panel").update({ activo: true }).eq("medico_id", Number(r1)).in("rol", ["medico", "enfermera"]);
+          void auditar(u, "config.medico.reactivar", { tipo: "medico", id: r1 }, { reactivado: ["ficha", "usuario_panel"] });
         }
         // Sincronizar áreas del médico (si vienen en el body)
         if (Array.isArray(body.areas)) {
@@ -728,6 +742,9 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
             return err("El número de colegiado es obligatorio para crear una ficha de médico");
           const areaIds = (Array.isArray(ficha.areas) ? ficha.areas : []).map(Number).filter(Boolean);
           if (areaIds.length === 0) return err(rol === "medico" ? "Elige al menos un área para el médico" : "Elige al menos un área para la enfermera (también trabajan por áreas)");
+          const tramosFicha = (Array.isArray(ficha.horario) ? ficha.horario : []).filter(
+            (t: any) => t && t.dia_semana !== undefined && t.hora_inicio && t.hora_fin && t.hora_fin > t.hora_inicio);
+          if (tramosFicha.length === 0) return err("Añade al menos un tramo de horario semanal: no puede haber médico ni enfermera sin agenda");
           const { data: m, error: eM } = await db().from("medicos").insert({
             nombre: ficha.nombre.trim(),
             tipo: rol === "enfermera" ? "enfermera" : "medico",
@@ -745,7 +762,12 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           }
           for (const areaId of areaIds) {
             const { error: eA2 } = await db().from("medico_areas").insert({ medico_id: m.id, area_id: areaId });
-            if (eA2 && eA2.code !== "23505") console.error("medico_areas:", eA2.message);
+            if (eA2 && eA2.code !== "23505") { await db().from("medicos").delete().eq("id", m.id); return err(eA2.message, 500); }
+          }
+          for (const t of tramosFicha) {
+            const { error: eH } = await db().from("horarios").insert({
+              medico_id: m.id, dia_semana: Number(t.dia_semana), hora_inicio: t.hora_inicio, hora_fin: t.hora_fin });
+            if (eH) { await db().from("medicos").delete().eq("id", m.id); return err(`Horario no válido: ${eH.message}`, 500); }
           }
           fichaId = m.id;
           void auditar(u, "config.medico.crear", { tipo: "medico", id: String(m.id), label: ficha.nombre.trim() },

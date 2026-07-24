@@ -76,11 +76,36 @@ function Areas() {
   );
 }
 
-/* Fichas de médicos y enfermería: la agenda, sus áreas, y a lo que se vincula el usuario del panel */
+/* Editor de tramos de horario semanal (usado en el alta de médicos: sin agenda no se crea) */
+function EditorHorario({ tramos, setTramos }: { tramos: any[]; setTramos: (t: any[]) => void }) {
+  return (
+    <>
+      {tramos.map((t, i) => (
+        <div className="fila" key={i} style={{ marginBottom: 6 }}>
+          <select value={t.dia_semana} style={{ width: 130 }}
+            onChange={(e) => { const a = [...tramos]; a[i] = { ...t, dia_semana: Number(e.target.value) }; setTramos(a); }}>
+            {[1, 2, 3, 4, 5, 6, 0].map((d) => <option key={d} value={d}>{DIAS[d]}</option>)}
+          </select>
+          <input type="time" value={t.hora_inicio} style={{ width: 110 }}
+            onChange={(e) => { const a = [...tramos]; a[i] = { ...t, hora_inicio: e.target.value }; setTramos(a); }} />
+          <span>a</span>
+          <input type="time" value={t.hora_fin} style={{ width: 110 }}
+            onChange={(e) => { const a = [...tramos]; a[i] = { ...t, hora_fin: e.target.value }; setTramos(a); }} />
+          <button className="btn mini suave" onClick={() => setTramos(tramos.filter((_, j) => j !== i))}>✕</button>
+        </div>
+      ))}
+      <button className="btn mini suave" onClick={() => setTramos([...tramos, { dia_semana: 1, hora_inicio: "09:00", hora_fin: "17:00" }])}>
+        + Añadir tramo
+      </button>
+    </>
+  );
+}
+
+/* Fichas de médicos y enfermería: consultar y editar. El ALTA se hace SIEMPRE
+   desde Usuarios y permisos (acceso + ficha + áreas + agenda de una vez). */
 function Medicos() {
   const [lista, setLista] = useState<any[]>([]);
   const [areas, setAreas] = useState<any[]>([]);
-  const [nuevo, setNuevo] = useState<any | null>(null);
   const [editar, setEditar] = useState<any | null>(null);
   const cargar = () => api<any[]>("medicos").then(setLista).catch((e) => alert(e.message));
   useEffect(() => { cargar(); api<any[]>("areas").then((a) => setAreas(a.filter((x: any) => x.activo))).catch(() => {}); }, []);
@@ -93,11 +118,8 @@ function Medicos() {
   return (
     <>
       <p className="nota">
-        La ficha de un médico es su columna de agenda: aquí se crea, se le asignan sus áreas y luego se le da horario (Horarios) y usuario del panel (Usuarios y permisos → vincular). Desactivar en vez de borrar: se conservan sus citas e historia.
+        Fichas de médicos y enfermería (su columna de agenda). El <b>alta se hace desde Usuarios y permisos</b> (+ Crear usuario → Médico/Enfermería), que crea a la vez acceso, ficha, áreas y agenda. Aquí se editan datos y áreas. Desactivar (nunca borrar) desactiva en cascada sus asignaciones y su usuario; se conservan citas pasadas, historia y horario por si se reactiva.
       </p>
-      <div className="fila">
-        <button className="btn oro" onClick={() => setNuevo({ nombre: "", tipo: "medico", areas: [] })}>+ Crear médico</button>
-      </div>
       <table className="t">
         <thead><tr><th>Nombre</th><th>Tipo</th><th>Áreas (su especialidad)</th><th>Activo</th><th></th></tr></thead>
         <tbody>
@@ -131,40 +153,6 @@ function Medicos() {
         </tbody>
       </table>
       {editar && <FichaMedico medico={editar} onCerrar={(ok) => { setEditar(null); if (ok) cargar(); }} />}
-      {nuevo && (
-        <div className="modal-bg" onClick={() => setNuevo(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Nueva ficha de médico</h3>
-            <div className="campo"><label>Nombre (como se verá en agenda y bot)</label>
-              <input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Dr./Dra. Nombre Apellido" /></div>
-            <div className="campo"><label>Tipo</label>
-              <select value={nuevo.tipo} onChange={(e) => setNuevo({ ...nuevo, tipo: e.target.value })}>
-                <option value="medico">Médico</option>
-                <option value="enfermera">Enfermería</option>
-              </select>
-            </div>
-            <div className="campo"><label>Áreas en las que trabaja</label>
-              <div>
-                {areas.map((a) => (
-                  <label key={a.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 12, fontSize: 13 }}>
-                    <input type="checkbox" style={{ width: "auto" }} checked={nuevo.areas.includes(a.id)}
-                      onChange={(e) => setNuevo({ ...nuevo, areas: e.target.checked ? [...nuevo.areas, a.id] : nuevo.areas.filter((x: number) => x !== a.id) })} />
-                    {a.nombre}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="fila" style={{ justifyContent: "flex-end" }}>
-              <button className="btn suave" onClick={() => setNuevo(null)}>Cerrar</button>
-              <button className="btn oro" onClick={async () => {
-                if (!nuevo.nombre.trim()) { alert("Falta el nombre"); return; }
-                try { await api("medicos", { method: "POST", body: nuevo }); setNuevo(null); cargar(); }
-                catch (e: any) { alert(e.message); }
-              }}>Crear ficha</button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
@@ -280,7 +268,7 @@ function CrearUsuario({ rolActual, medicos, onCerrar }: { rolActual: string; med
   const [tipo, setTipo] = useState<string | null>(null);
   const [areas, setAreas] = useState<any[]>([]);
   const [f, setF] = useState<any>({ email: "", password: "", nombre: "" });
-  const [ficha, setFicha] = useState<any>({ nombre: "", num_colegiado: "", dni: "", telefono: "", fecha_nacimiento: "", direccion: "", bio: "", areas: [] });
+  const [ficha, setFicha] = useState<any>({ nombre: "", num_colegiado: "", dni: "", telefono: "", fecha_nacimiento: "", direccion: "", bio: "", areas: [], horario: [{ dia_semana: 1, hora_inicio: "09:00", hora_fin: "17:00" }] });
   const [vincularA, setVincularA] = useState<number | "">(""); // ficha existente en vez de crear
   const [error, setError] = useState("");
   const [creando, setCreando] = useState(false);
@@ -394,9 +382,11 @@ function CrearUsuario({ rolActual, medicos, onCerrar }: { rolActual: string; med
                         ))}
                       </div>
                     </div>
+                    <div className="campo"><label>Agenda semanal * (sin agenda no se crea nada; luego la ajusta desde Mi horario)</label>
+                      <EditorHorario tramos={ficha.horario} setTramos={(h) => setFicha({ ...ficha, horario: h })} />
+                    </div>
                     <div className="campo"><label>Bio / notas (opcional)</label>
                       <textarea rows={2} value={ficha.bio} onChange={(e) => setFicha({ ...ficha, bio: e.target.value })} /></div>
-                    <p className="nota" style={{ margin: 0 }}>Después: asigna su horario en Configuración → Horarios para que aparezca en la agenda y el bot le pueda dar citas.</p>
                   </div>
                 )}
               </>
