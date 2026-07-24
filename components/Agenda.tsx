@@ -11,7 +11,7 @@ interface Cita {
   pacientes?: { id: number; nombre: string | null; apellidos: string | null; telefono: string } | null;
   tratamientos?: { nombre: string } | null;
 }
-interface Medico { id: number; nombre: string; especialidad: string | null; tipo?: string; horario?: { hora_inicio: string; hora_fin: string }[]; citas?: Cita[] }
+interface Medico { id: number; nombre: string; tipo?: string; medico_areas?: { areas: { nombre: string } | null }[]; horario?: { hora_inicio: string; hora_fin: string }[]; citas?: Cita[] }
 
 const sumaDias = (fecha: string, n: number) => {
   const d = new Date(`${fecha}T12:00:00Z`);
@@ -126,7 +126,7 @@ function VistaDia({ fecha, refresco, onError, onNueva, onCambio }:
               {datos.medicos.map((m) => (
                 <th key={m.id} className={m.tipo === "enfermera" ? "th-enf" : ""}>
                   {m.nombre}
-                  <small>{m.tipo === "enfermera" ? "Enfermería" : m.especialidad ?? ""}</small>
+                  <small>{m.tipo === "enfermera" ? "Enfermería" : (m.medico_areas ?? []).map((x) => x.areas?.nombre).filter(Boolean).join(" · ")}</small>
                 </th>
               ))}
             </tr>

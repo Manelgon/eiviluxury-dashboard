@@ -101,18 +101,17 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       if (metodo === "GET") {
         const { data, error } = await db()
           .from("medicos")
-          .select("id, nombre, especialidad, activo, tipo, num_colegiado, dni, telefono, email, fecha_nacimiento, direccion, bio, medico_areas(area_id)")
+          .select("id, nombre, activo, tipo, num_colegiado, dni, telefono, email, fecha_nacimiento, direccion, bio, medico_areas(area_id)")
           .order("nombre");
         if (error) return err(error.message, 500);
         return json(data);
       }
       if (!puede(u, "config")) return err("Sin permiso", 403);
       if (metodo === "POST") {
-        const { nombre, especialidad, tipo, areas } = body;
+        const { nombre, tipo, areas } = body;
         if (!nombre?.trim()) return err("Falta el nombre del médico");
         const { data, error } = await db().from("medicos").insert({
           nombre: nombre.trim(),
-          especialidad: especialidad?.trim() || null,
           tipo: tipo === "enfermera" ? "enfermera" : "medico",
         }).select("id").single();
         if (error) return err(error.message, 500);
@@ -122,12 +121,12 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           if (eA && eA.code !== "23505") console.error("medico_areas:", eA.message);
         }
         void auditar(u, "config.medico.crear", { tipo: "medico", id: String(data.id), label: nombre.trim() },
-          { nombre: nombre.trim(), especialidad: especialidad ?? null, tipo: tipo ?? "medico", areas: areaIds });
+          { nombre: nombre.trim(), tipo: tipo ?? "medico", areas: areaIds });
         return json({ ok: true, id: data.id });
       }
       if (metodo === "PATCH" && r1) {
         const cambios: Record<string, unknown> = {};
-        for (const k of ["nombre", "especialidad", "tipo", "activo", "num_colegiado", "dni", "telefono", "email", "fecha_nacimiento", "direccion", "bio"])
+        for (const k of ["nombre", "tipo", "activo", "num_colegiado", "dni", "telefono", "email", "fecha_nacimiento", "direccion", "bio"])
           if (k in body) cambios[k] = body[k];
         if (Object.keys(cambios).length) {
           const { error } = await db().from("medicos").update(cambios).eq("id", Number(r1));
@@ -162,7 +161,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
     }
 
     case "agenda": {
-      let medQ = db().from("medicos").select("id, nombre, especialidad, tipo").eq("activo", true).order("nombre");
+      let medQ = db().from("medicos").select("id, nombre, tipo, medico_areas(areas(nombre))").eq("activo", true).order("nombre");
       // El médico ve su columna + las de enfermería; enfermera y demás roles ven todo
       if (u.rol === "medico" && u.medico_id) medQ = medQ.or(`id.eq.${u.medico_id},tipo.eq.enfermera`);
       const { data: medicos, error: e1 } = await medQ;
@@ -627,7 +626,6 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           if (rol === "medico" && areaIds.length === 0) return err("Elige al menos un área para el médico");
           const { data: m, error: eM } = await db().from("medicos").insert({
             nombre: ficha.nombre.trim(),
-            especialidad: ficha.especialidad?.trim() || null,
             tipo: rol === "enfermera" ? "enfermera" : "medico",
             num_colegiado: ficha.num_colegiado?.trim() || null,
             dni: ficha.dni?.trim() || null,

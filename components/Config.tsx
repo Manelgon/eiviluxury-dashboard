@@ -96,10 +96,10 @@ function Medicos() {
         La ficha de un médico es su columna de agenda: aquí se crea, se le asignan sus áreas y luego se le da horario (Horarios) y usuario del panel (Usuarios y permisos → vincular). Desactivar en vez de borrar: se conservan sus citas e historia.
       </p>
       <div className="fila">
-        <button className="btn oro" onClick={() => setNuevo({ nombre: "", especialidad: "", tipo: "medico", areas: [] })}>+ Crear médico</button>
+        <button className="btn oro" onClick={() => setNuevo({ nombre: "", tipo: "medico", areas: [] })}>+ Crear médico</button>
       </div>
       <table className="t">
-        <thead><tr><th>Nombre</th><th>Especialidad</th><th>Tipo</th><th>Áreas</th><th>Activo</th><th></th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Tipo</th><th>Áreas (su especialidad)</th><th>Activo</th><th></th></tr></thead>
         <tbody>
           {lista.map((m) => {
             const suyas = (m.medico_areas ?? []).map((x: any) => x.area_id);
@@ -107,9 +107,6 @@ function Medicos() {
               <tr key={m.id} style={{ opacity: m.activo ? 1 : 0.5 }}>
                 <td style={{ width: 220 }}>
                   <input defaultValue={m.nombre} onBlur={(e) => { if (e.target.value.trim() && e.target.value !== m.nombre) actualizar(m.id, { nombre: e.target.value.trim() }); }} />
-                </td>
-                <td style={{ width: 200 }}>
-                  <input defaultValue={m.especialidad ?? ""} onBlur={(e) => actualizar(m.id, { especialidad: e.target.value || null })} />
                 </td>
                 <td style={{ width: 130 }}>
                   <select defaultValue={m.tipo ?? "medico"} onChange={(e) => actualizar(m.id, { tipo: e.target.value })}>
@@ -140,8 +137,6 @@ function Medicos() {
             <h3>Nueva ficha de médico</h3>
             <div className="campo"><label>Nombre (como se verá en agenda y bot)</label>
               <input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Dr./Dra. Nombre Apellido" /></div>
-            <div className="campo"><label>Especialidad (opcional)</label>
-              <input value={nuevo.especialidad} onChange={(e) => setNuevo({ ...nuevo, especialidad: e.target.value })} /></div>
             <div className="campo"><label>Tipo</label>
               <select value={nuevo.tipo} onChange={(e) => setNuevo({ ...nuevo, tipo: e.target.value })}>
                 <option value="medico">Médico</option>
@@ -274,7 +269,7 @@ function CrearUsuario({ rolActual, medicos, onCerrar }: { rolActual: string; med
   const [tipo, setTipo] = useState<string | null>(null);
   const [areas, setAreas] = useState<any[]>([]);
   const [f, setF] = useState<any>({ email: "", password: "", nombre: "" });
-  const [ficha, setFicha] = useState<any>({ nombre: "", especialidad: "", num_colegiado: "", dni: "", telefono: "", fecha_nacimiento: "", direccion: "", bio: "", areas: [] });
+  const [ficha, setFicha] = useState<any>({ nombre: "", num_colegiado: "", dni: "", telefono: "", fecha_nacimiento: "", direccion: "", bio: "", areas: [] });
   const [vincularA, setVincularA] = useState<number | "">(""); // ficha existente en vez de crear
   const [error, setError] = useState("");
   const [creando, setCreando] = useState(false);
@@ -354,12 +349,8 @@ function CrearUsuario({ rolActual, medicos, onCerrar }: { rolActual: string; med
                 {!vincularA && (
                   <div className="card" style={{ marginBottom: 10 }}>
                     <p className="nota" style={{ marginTop: 0 }}><b>Ficha del facultativo</b> — se crea a la vez que el acceso y queda vinculada</p>
-                    <div className="campo" style={{ display: "flex", gap: 10 }}>
-                      <div style={{ flex: 1 }}><label>Nombre (como saldrá en agenda y bot) *</label>
-                        <input value={ficha.nombre} onChange={(e) => setFicha({ ...ficha, nombre: e.target.value })} placeholder="Dr./Dra. Nombre Apellidos" /></div>
-                      <div style={{ flex: 1 }}><label>Especialidad</label>
-                        <input value={ficha.especialidad} onChange={(e) => setFicha({ ...ficha, especialidad: e.target.value })} /></div>
-                    </div>
+                    <div className="campo"><label>Nombre (como saldrá en agenda y bot) *</label>
+                      <input value={ficha.nombre} onChange={(e) => setFicha({ ...ficha, nombre: e.target.value })} placeholder="Dr./Dra. Nombre Apellidos" /></div>
                     <div className="campo" style={{ display: "flex", gap: 10 }}>
                       <div style={{ flex: 1 }}><label>Nº colegiado {tipo === "medico" ? "*" : "(opcional)"}</label>
                         <input value={ficha.num_colegiado} onChange={(e) => setFicha({ ...ficha, num_colegiado: e.target.value })} /></div>
