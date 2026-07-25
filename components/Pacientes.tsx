@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, fmtFechaHora } from "./api";
 import HistoriaClinica, { Asignaciones } from "./HistoriaClinica";
 import ListaEspera from "./ListaEspera";
@@ -24,8 +24,10 @@ function ListaPacientes({ rol }: { rol?: string }) {
   const [q, setQ] = useState("");
   const [lista, setLista] = useState<any[]>([]);
   const [ficha, setFicha] = useState<any | null>(null);
-  const [abierto, setAbierto] = useState<number | null>(null);
+  // Menú de acciones: dropdown flotante ANCLADO donde se clicó la fila
+  const [menu, setMenu] = useState<{ c: any; x: number; y: number } | null>(null);
   const [citaPara, setCitaPara] = useState<any | null>(null);
+  const [verCitas, setVerCitas] = useState<any | null>(null);
   const [papelera, setPapelera] = useState(false);
   const [nuevo, setNuevo] = useState(false);
 
@@ -42,7 +44,7 @@ function ListaPacientes({ rol }: { rol?: string }) {
         <input placeholder="Buscar paciente por nombre, apellidos o teléfono…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 340 }} />
         <button className="btn oro" onClick={() => setNuevo(true)}>+ Nuevo paciente</button>
         <div style={{ flex: 1 }} />
-        <button className={`btn mini ${papelera ? "oro" : "suave"}`} onClick={() => { setPapelera(!papelera); setAbierto(null); }}>
+        <button className={`btn mini ${papelera ? "oro" : "suave"}`} onClick={() => { setPapelera(!papelera); setMenu(null); }}>
           🗑 Papelera {papelera ? "(viendo eliminados)" : ""}
         </button>
       </div>
@@ -50,74 +52,140 @@ function ListaPacientes({ rol }: { rol?: string }) {
         <thead><tr><th>Nombre</th><th>Teléfono</th><th>Email</th><th>RGPD</th><th>Alta</th></tr></thead>
         <tbody>
           {lista.map((c) => (
-            <Fragment key={c.id}>
-              <tr className={`fila-paciente ${abierto === c.id ? "abierta" : ""}`}
-                onClick={() => setAbierto(abierto === c.id ? null : c.id)}>
-                <td>
-                  {[c.nombre, c.apellidos].filter(Boolean).join(" ") || <i style={{ color: "var(--muted)" }}>sin nombre</i>}
-                  {!c.alta_completa && !c.deleted_at && <span className="chip pendiente" style={{ marginLeft: 6 }} title="El bot lo registró con datos de contacto; recepción debe completar la ficha (DNI, fecha de nacimiento...) cuando venga">⏳ alta pendiente</span>}
-                </td>
-                <td>{c.telefono}{c.telefono_contacto ? ` · ☎ ${c.telefono_contacto}` : ""}</td>
-                <td>{c.email ?? "—"}</td>
-                <td>{c.consentimiento_rgpd ? <span className="chip confirmada">aceptado</span> : <span className="chip cancelada">no</span>}</td>
-                <td>{new Date(c.created_at).toLocaleDateString("es-ES")}</td>
-              </tr>
-              {abierto === c.id && (
-                <tr className="fila-acciones">
-                  <td colSpan={5}>
-                    <div className="acciones-paciente">
-                      {papelera ? (
-                        <>
-                          <PapeleraInfo deletedAt={c.deleted_at} />
-                          <button className="btn mini oro" onClick={async () => {
-                            await api(`pacientes/${c.id}`, { method: "PATCH", body: { restaurar: true } });
-                            cargar();
-                          }}>♻️ Restaurar paciente</button>
-                          <button className="btn mini suave" style={{ color: "var(--rojo)" }} onClick={async () => {
-                            if (!confirm("⚠️ ANONIMIZAR es IRREVERSIBLE: se borran nombre, email y teléfonos para siempre (se conservan citas y consentimientos como registro). ¿Continuar?")) return;
-                            try { await api(`pacientes/${c.id}`, { method: "PATCH", body: { anonimizar: true } }); cargar(); }
-                            catch (e: any) {
-                              if (String(e.message).includes("plazo legal") &&
-                                confirm(`${e.message}\n\n¿FORZAR la anonimización igualmente? (quedará auditado)`)) {
-                                try { await api(`pacientes/${c.id}`, { method: "PATCH", body: { anonimizar: true, forzar: true } }); cargar(); }
-                                catch (e2: any) { alert(e2.message); }
-                              } else if (!String(e.message).includes("plazo legal")) alert(e.message);
-                            }
-                          }}>⚠️ Anonimizar (definitivo)</button>
-                        </>
-                      ) : (
-                        <>
-                          <button className="btn mini" onClick={() => api(`pacientes/${c.id}`).then(setFicha)}>📋 Ver ficha</button>
-                          <button className="btn mini oro" onClick={() => setCitaPara(c)}>📅 Nueva cita</button>
-                          <a className="btn mini suave" href={`https://wa.me/${c.telefono}`} target="_blank" rel="noopener"
-                            onClick={(e) => e.stopPropagation()}>💬 WhatsApp</a>
-                          <button className="btn mini suave" onClick={async () => {
-                            await api(`pacientes/${c.id}`, { method: "PATCH", body: { activo: !c.activo } });
-                            cargar();
-                          }}>{c.activo ? "🚫 Desactivar" : "✅ Reactivar"}</button>
-                          {!c.activo && (
-                            <button className="btn mini suave" style={{ color: "var(--rojo)" }} onClick={async () => {
-                              if (!confirm("¿Enviar este paciente a la papelera? Es reversible desde 🗑 Papelera durante 30 días.")) return;
-                              await api(`pacientes/${c.id}`, { method: "PATCH", body: { eliminar: true } });
-                              cargar();
-                            }}>🗑 Eliminar (a papelera)</button>
-                          )}
-                          {!c.activo && <span className="chip">desactivado — ya puede eliminarse</span>}
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </Fragment>
+            <tr key={c.id} className={`fila-paciente ${menu?.c.id === c.id ? "abierta" : ""}`}
+              onClick={(e) => setMenu(menu?.c.id === c.id ? null : { c, x: e.clientX, y: e.clientY })}>
+              <td>
+                {[c.nombre, c.apellidos].filter(Boolean).join(" ") || <i style={{ color: "var(--muted)" }}>sin nombre</i>}
+                {!c.alta_completa && !c.deleted_at && <span className="chip pendiente" style={{ marginLeft: 6 }} title="El bot lo registró con datos de contacto; recepción debe completar la ficha (DNI, fecha de nacimiento...) cuando venga">⏳ alta pendiente</span>}
+              </td>
+              <td>{c.telefono}{c.telefono_contacto ? ` · ☎ ${c.telefono_contacto}` : ""}</td>
+              <td>{c.email ?? "—"}</td>
+              <td>{c.consentimiento_rgpd ? <span className="chip confirmada">aceptado</span> : <span className="chip cancelada">no</span>}</td>
+              <td>{new Date(c.created_at).toLocaleDateString("es-ES")}</td>
+            </tr>
           ))}
           {lista.length === 0 && <tr><td colSpan={5} className="vacio">Sin resultados</td></tr>}
         </tbody>
       </table>
+
+      {/* Dropdown de acciones anclado donde se clicó la fila */}
+      {menu && (() => {
+        const c = menu.c;
+        const cerrar = () => setMenu(null);
+        const left = Math.max(8, Math.min(menu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 250));
+        const top = Math.max(8, Math.min(menu.y + 8, (typeof window !== "undefined" ? window.innerHeight : 800) - 330));
+        return (
+          <>
+            <div className="menu-fondo" onClick={cerrar} />
+            <div className="menu-fila" style={{ left, top }}>
+              <p className="nota" style={{ margin: "2px 10px 6px", fontSize: 12 }}>
+                <b>{[c.nombre, c.apellidos].filter(Boolean).join(" ") || c.telefono}</b>
+              </p>
+              {papelera ? (
+                <>
+                  <div style={{ padding: "0 10px 6px" }}><PapeleraInfo deletedAt={c.deleted_at} /></div>
+                  <button onClick={async () => {
+                    await api(`pacientes/${c.id}`, { method: "PATCH", body: { restaurar: true } });
+                    cerrar(); cargar();
+                  }}>♻️ Restaurar paciente</button>
+                  <button style={{ color: "var(--rojo)" }} onClick={async () => {
+                    if (!confirm("⚠️ ANONIMIZAR es IRREVERSIBLE: se borran nombre, email y teléfonos para siempre (se conservan citas y consentimientos como registro). ¿Continuar?")) return;
+                    try { await api(`pacientes/${c.id}`, { method: "PATCH", body: { anonimizar: true } }); cerrar(); cargar(); }
+                    catch (e: any) {
+                      if (String(e.message).includes("plazo legal") &&
+                        confirm(`${e.message}\n\n¿FORZAR la anonimización igualmente? (quedará auditado)`)) {
+                        try { await api(`pacientes/${c.id}`, { method: "PATCH", body: { anonimizar: true, forzar: true } }); cerrar(); cargar(); }
+                        catch (e2: any) { alert(e2.message); }
+                      } else if (!String(e.message).includes("plazo legal")) alert(e.message);
+                    }
+                  }}>⚠️ Anonimizar (definitivo)</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => { cerrar(); api(`pacientes/${c.id}`).then(setFicha); }}>📋 Ver ficha</button>
+                  <button onClick={() => { cerrar(); setVerCitas(c); }}>🗓 Ver citas</button>
+                  <button onClick={() => { cerrar(); setCitaPara(c); }}>📅 Nueva cita</button>
+                  <a href={`https://wa.me/${c.telefono}`} target="_blank" rel="noopener" onClick={cerrar}>💬 WhatsApp</a>
+                  <button onClick={async () => {
+                    await api(`pacientes/${c.id}`, { method: "PATCH", body: { activo: !c.activo } });
+                    cerrar(); cargar();
+                  }}>{c.activo ? "🚫 Desactivar" : "✅ Reactivar"}</button>
+                  {!c.activo && (
+                    <button style={{ color: "var(--rojo)" }} onClick={async () => {
+                      if (!confirm("¿Enviar este paciente a la papelera? Es reversible desde 🗑 Papelera durante 30 días.")) return;
+                      await api(`pacientes/${c.id}`, { method: "PATCH", body: { eliminar: true } });
+                      cerrar(); cargar();
+                    }}>🗑 Eliminar (a papelera)</button>
+                  )}
+                  {!c.activo && <p className="nota" style={{ margin: "4px 10px 4px", fontSize: 11.5 }}>desactivado — ya puede eliminarse</p>}
+                </>
+              )}
+            </div>
+          </>
+        );
+      })()}
       {ficha && <FichaPaciente paciente={ficha} rol={rol} onCerrar={() => { setFicha(null); cargar(); }} />}
       {citaPara && <NuevaCitaPaciente paciente={citaPara} onCerrar={() => setCitaPara(null)} />}
+      {verCitas && <CitasPaciente paciente={verCitas} onCerrar={() => setVerCitas(null)} />}
       {nuevo && <NuevoPaciente onCerrar={(ok) => { setNuevo(false); if (ok) cargar(); }} />}
     </>
+  );
+}
+
+/* Modal "Ver citas": todas las citas del paciente con tratamiento y área */
+function CitasPaciente({ paciente, onCerrar }: { paciente: any; onCerrar: () => void }) {
+  const [citas, setCitas] = useState<any[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api<any>(`pacientes/${paciente.id}`)
+      .then((p) => setCitas(p.citas ?? []))
+      .catch((e) => setError(e.message));
+  }, [paciente.id]);
+
+  const ahora = Date.now();
+  const proximas = (citas ?? []).filter((c) => new Date(c.inicio).getTime() >= ahora && !["cancelada", "no_show"].includes(c.estado));
+  const pasadas = (citas ?? []).filter((c) => !proximas.includes(c));
+  const ETIQ: Record<string, string> = {
+    pendiente: "pendiente", confirmada: "confirmada", en_espera: "en espera", en_consulta: "en consulta",
+    completada: "completada", cancelada: "cancelada", no_show: "no vino",
+  };
+  const Tabla = ({ filas, vacio }: { filas: any[]; vacio: string }) => (
+    <table className="t">
+      <thead><tr><th>Cuándo</th><th>Médico</th><th>Tratamiento</th><th>Área</th><th>Estado</th></tr></thead>
+      <tbody>
+        {filas.map((c: any) => (
+          <tr key={c.id}>
+            <td>{fmtFechaHora(c.inicio)}</td>
+            <td>{c.medicos?.nombre ?? "—"}</td>
+            <td>{c.tratamientos?.nombre ?? "—"}</td>
+            <td>{c.tratamientos?.areas?.nombre ?? "—"}</td>
+            <td><span className={`chip ${c.estado}`}>{ETIQ[c.estado] ?? c.estado}</span></td>
+          </tr>
+        ))}
+        {filas.length === 0 && <tr><td colSpan={5} className="vacio">{vacio}</td></tr>}
+      </tbody>
+    </table>
+  );
+
+  return (
+    <div className="modal-bg" onClick={onCerrar}>
+      <div className="modal" style={{ width: "min(760px,95vw)", maxHeight: "88vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ marginBottom: 2 }}>🗓 Citas · {[paciente.nombre, paciente.apellidos].filter(Boolean).join(" ") || paciente.telefono}</h3>
+        {error && <div className="error">{error}</div>}
+        {!citas && !error && <p className="nota">Cargando citas…</p>}
+        {citas && (
+          <>
+            <p className="nota" style={{ margin: "8px 0 4px" }}><b>Próximas</b> ({proximas.length})</p>
+            <Tabla filas={proximas} vacio="Sin citas próximas" />
+            <p className="nota" style={{ margin: "12px 0 4px" }}><b>Anteriores</b> ({pasadas.length})</p>
+            <Tabla filas={pasadas} vacio="Sin citas anteriores" />
+          </>
+        )}
+        <div className="fila" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+          <button className="btn suave" onClick={onCerrar}>Cerrar</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

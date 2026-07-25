@@ -167,6 +167,11 @@ table.t tr:last-child td{border-bottom:none}
 /* Gestor de consulta (2 columnas en escritorio, 1 en móvil) */
 .grid-consulta{display:grid;grid-template-columns:1.45fr 1fr;gap:14px;align-items:start}
 
+/* Menú de acciones de una fila (dropdown anclado donde se clica) */
+.menu-fila{position:fixed;z-index:110;background:#fff;border:1px solid var(--linea);border-radius:12px;box-shadow:0 10px 32px rgba(28,26,23,.2);min-width:225px;padding:6px}
+.menu-fila button,.menu-fila a{display:block;width:100%;text-align:left;background:none;border:none;padding:9px 12px;border-radius:8px;font-size:13.5px;color:var(--tinta);text-decoration:none}
+.menu-fila button:hover,.menu-fila a:hover{background:#faf5eb}
+
 /* Ficha del paciente: datos en rejilla adaptable */
 .grid-ficha{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 14px}
 .grid-ficha label{display:block;margin-bottom:3px}

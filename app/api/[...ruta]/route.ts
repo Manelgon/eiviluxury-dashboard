@@ -417,7 +417,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (error || !paciente) return err("Paciente no encontrado", 404);
         const { data: citas } = await db()
           .from("citas")
-          .select("id, inicio, estado, confirmada_paciente, medicos!citas_medico_id_fkey(nombre), tratamientos(nombre)")
+          .select("id, inicio, estado, confirmada_paciente, medicos!citas_medico_id_fkey(nombre), tratamientos(nombre, areas(nombre))")
           .eq("paciente_id", paciente.id)
           .order("inicio", { ascending: false })
           .limit(50);
