@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, fmtHora, hoyISO } from "./api";
+import { PantallaConsulta } from "./HistoriaClinica";
 
 type Modo = "dia" | "semana" | "mes";
 const DIAS_SEMANA = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -111,9 +112,25 @@ function VistaDia({ fecha, refresco, soloId, miFicha, rol, onError, onNueva, onC
   const [sel, setSel] = useState<Cita | null>(null);
   const datos = useMemo(() => crudo && ({ ...crudo, medicos: crudo.medicos.filter((m) => !soloId || m.id === soloId) }), [crudo, soloId]);
   const esGestion = ["admin", "direccion", "recepcion"].includes(rol);
+  // Pantalla de consulta (gestor MEAP, modelo SANIAN) abierta desde la cita
+  const [consulta, setConsulta] = useState<{ pacienteId: number; citaId: number; nombre: string; trat: string | null } | null>(null);
   // Tic por minuto: mantiene fresco el "lleva X min esperando" sin recargar
   const [, setTic] = useState(0);
   useEffect(() => { const t = setInterval(() => setTic((n) => n + 1), 60_000); return () => clearInterval(t); }, []);
+
+  // Empezar consulta = estado en_consulta + abrir el gestor MEAP con la cita vinculada
+  async function empezarConsulta(c: Cita, yaEnConsulta: boolean) {
+    if (!c.pacientes?.id) { alert("Esta cita no tiene paciente vinculado"); return; }
+    try {
+      if (!yaEnConsulta) await api(`citas/${c.id}`, { method: "PATCH", body: { estado: "en_consulta" } });
+      setSel(null); onCambio();
+      setConsulta({
+        pacienteId: c.pacientes.id, citaId: c.id,
+        nombre: [c.pacientes.nombre, c.pacientes.apellidos].filter(Boolean).join(" ") || c.pacientes.telefono,
+        trat: c.tratamientos?.nombre ?? null,
+      });
+    } catch (e: any) { alert(e.message); }
+  }
 
   useEffect(() => {
     api<{ medicos: Medico[] }>(`agenda?fecha=${fecha}`).then((d) => { setCrudo(d); onError(""); }).catch((e) => onError(e.message));
@@ -207,7 +224,7 @@ function VistaDia({ fecha, refresco, soloId, miFicha, rol, onError, onNueva, onC
               </p>
             )}
             {sel.estado === "en_consulta" && (
-              <p className="nota">🩺 En consulta ahora mismo. Se cerrará sola al guardar la consulta (MEAP) del paciente, o con el botón Finalizar.</p>
+              <p className="nota">🩺 En consulta ahora mismo. Al guardar el registro clínico (MEAP) la cita se completará sola; "Finalizar sin registro" la cierra sin consulta.</p>
             )}
             {sel.notas && <p className="nota">Notas: {sel.notas}</p>}
             <div className="fila" style={{ justifyContent: "flex-end" }}>
@@ -218,10 +235,13 @@ function VistaDia({ fecha, refresco, soloId, miFicha, rol, onError, onNueva, onC
               {/* Empezar consulta: SOLO el titular de la cita (médico, directivo-médico o enfermera titular).
                   Si la enfermera va de apoyo, la empieza el médico y el estado se comparte. */}
               {miFicha === sel.medico_id && ["pendiente", "confirmada", "en_espera"].includes(sel.estado) && (
-                <button className="btn mini oro" onClick={() => cambiar(sel.id, "en_consulta")}>🩺 Empezar consulta</button>
+                <button className="btn mini oro" onClick={() => empezarConsulta(sel, false)}>🩺 Empezar consulta</button>
               )}
               {miFicha === sel.medico_id && sel.estado === "en_consulta" && (
-                <button className="btn mini oro" onClick={() => cambiar(sel.id, "completada")}>✓ Finalizar consulta</button>
+                <>
+                  <button className="btn mini oro" onClick={() => empezarConsulta(sel, true)}>🩺 Abrir consulta</button>
+                  <button className="btn mini suave" onClick={() => cambiar(sel.id, "completada")}>✓ Finalizar sin registro</button>
+                </>
               )}
               {/* Corrección manual de gestión (por si el flujo no se siguió): marcar completada */}
               {esGestion && ["pendiente", "confirmada", "en_espera", "en_consulta"].includes(sel.estado) && (
@@ -243,6 +263,17 @@ function VistaDia({ fecha, refresco, soloId, miFicha, rol, onError, onNueva, onC
             </div>
           </div>
         </div>
+      )}
+
+      {/* Pantalla de consulta (gestor MEAP) vinculada a la cita en curso */}
+      {consulta && (
+        <PantallaConsulta
+          pacienteId={consulta.pacienteId}
+          citaId={consulta.citaId}
+          nombrePaciente={consulta.nombre}
+          tratamientoNombre={consulta.trat}
+          onCerrar={() => { setConsulta(null); onCambio(); }}
+        />
       )}
     </>
   );

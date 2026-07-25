@@ -362,7 +362,10 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           .order("created_at", { ascending: false })
           .limit(100);
         cq = papelera ? cq.not("deleted_at", "is", null) : cq.is("deleted_at", null);
-        if (busca) cq = cq.or(`nombre.ilike.%${busca}%,apellidos.ilike.%${busca}%,telefono.ilike.%${busca}%`);
+        // El CIP es el identificador de referencia de la clínica: si pegan un CIP completo, búsqueda exacta
+        const esCip = busca && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(busca);
+        if (esCip) cq = cq.eq("cip", busca);
+        else if (busca) cq = cq.or(`nombre.ilike.%${busca}%,apellidos.ilike.%${busca}%,telefono.ilike.%${busca}%`);
         const { data, error } = await cq;
         if (error) return err(error.message, 500);
         return json(data);

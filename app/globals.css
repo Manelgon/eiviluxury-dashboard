@@ -167,6 +167,15 @@ table.t tr:last-child td{border-bottom:none}
 /* Gestor de consulta (2 columnas en escritorio, 1 en móvil) */
 .grid-consulta{display:grid;grid-template-columns:1.45fr 1fr;gap:14px;align-items:start}
 
+/* Pantalla de consulta a PANTALLA COMPLETA (modelo SANIAN, no modal) */
+.pantalla-consulta{position:fixed;inset:0;background:var(--marfil);z-index:200;overflow-y:auto}
+.cab-consulta{position:sticky;top:0;z-index:5;background:var(--marfil);border-bottom:1px solid var(--linea);padding:12px 22px;box-shadow:0 4px 14px rgba(28,26,23,.06)}
+.cuerpo-consulta{padding:16px 22px 70px;max-width:1280px;margin:0 auto}
+@media(max-width:768px){
+  .cab-consulta{padding:10px 12px}
+  .cuerpo-consulta{padding:12px 10px 60px}
+}
+
 /* ============ MENÚ MÓVIL (burger + drawer derecho) ============ */
 .burger{display:none;background:none;border:none;color:#fff;font-size:22px;line-height:1;padding:6px 4px;margin-left:2px}
 .drawer-fondo{position:fixed;inset:0;background:rgba(28,26,23,.5);z-index:120}

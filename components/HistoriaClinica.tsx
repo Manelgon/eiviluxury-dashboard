@@ -64,7 +64,8 @@ export default function HistoriaClinica({ pacienteId, nombrePaciente }: { pacien
         <h3 style={{ margin: 0 }}>{nombre}</h3>
         <span className="nota" style={{ margin: 0 }}>
           {edad != null ? `${edad} años · ` : ""}{p?.sexo ? `${p.sexo} · ` : ""}{p?.telefono ?? ""}
-          {p?.cip ? <> · CIP <code style={{ fontSize: 10.5 }}>{String(p.cip).slice(0, 8)}…</code></> : ""}
+          {p?.cip ? <> · CIP <code style={{ fontSize: 10.5, cursor: "copy" }} title={`${p.cip} — clic para copiar`}
+            onClick={() => { navigator.clipboard?.writeText(String(p.cip)); }}>{String(p.cip).slice(0, 8)}… 📋</code></> : ""}
         </span>
         {p && (p.alta_completa
           ? <span className="chip confirmada">alta completa</span>
@@ -434,13 +435,46 @@ function EditarConsulta({ c, onCerrar }: { c: any; onCerrar: (ok: boolean) => vo
 }
 
 /* ---------------- Gestor de consulta (modelo SANIAN: MEAP + diagnósticos + constantes) ---------------- */
-function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], alergias = [], onCerrar }:
-  { pacienteId: number; nombrePaciente?: string; ambito: number[] | null; problemas?: any[]; alergias?: any[]; onCerrar: (guardada: boolean) => void }) {
+/* ============================================================
+   PANTALLA DE CONSULTA desde la AGENDA (flujo de clínica):
+   al pulsar "Empezar consulta" en una cita, se abre el gestor
+   MEAP (modelo SANIAN) con el paciente y la CITA VINCULADA:
+   al guardar, el servidor completa esa cita y para el contador.
+   Carga la historia (alergias + lista de problemas) y delega
+   en el mismo workspace NuevaConsulta de Mis pacientes.
+   ============================================================ */
+export function PantallaConsulta({ pacienteId, citaId, nombrePaciente, tratamientoNombre, onCerrar }:
+  { pacienteId: number; citaId: number; nombrePaciente?: string; tratamientoNombre?: string | null; onCerrar: (guardada: boolean) => void }) {
+  const [h, setH] = useState<Historia | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api<Historia>(`historia?paciente_id=${pacienteId}`).then(setH).catch((e) => setError(e.message));
+  }, [pacienteId]);
+  if (error) return (
+    <div className="modal-bg" onClick={() => onCerrar(false)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="error">{error}</div>
+        <div className="fila" style={{ justifyContent: "flex-end" }}><button className="btn suave" onClick={() => onCerrar(false)}>Cerrar</button></div>
+      </div>
+    </div>
+  );
+  if (!h) return (
+    <div className="modal-bg"><div className="modal"><p className="nota" style={{ margin: 0 }}>Abriendo consulta…</p></div></div>
+  );
+  return (
+    <NuevaConsulta pacienteId={pacienteId} nombrePaciente={nombrePaciente} ambito={h.ambito}
+      problemas={h.diagnosticos} alergias={h.alergias}
+      citaId={citaId} tratamientoNombre={tratamientoNombre ?? null} onCerrar={onCerrar} />
+  );
+}
+
+function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], alergias = [], citaId = null, tratamientoNombre = null, onCerrar }:
+  { pacienteId: number; nombrePaciente?: string; ambito: number[] | null; problemas?: any[]; alergias?: any[]; citaId?: number | null; tratamientoNombre?: string | null; onCerrar: (guardada: boolean) => void }) {
   const [areas, setAreas] = useState<any[]>([]);
   const [medicos, setMedicos] = useState<any[]>([]);
   const [areaId, setAreaId] = useState<number | "">("");
   const [medicoId, setMedicoId] = useState<number | "">("");
-  const [f, setF] = useState({ motivo: "", exploracion: "", juicio_clinico: "", plan: "", tratamiento: "", notas: "" });
+  const [f, setF] = useState({ motivo: "", exploracion: "", juicio_clinico: "", plan: "", tratamiento: tratamientoNombre ?? "", notas: "" });
   const [diags, setDiags] = useState<{ codigo: string; descripcion: string; estado: string; previo?: string }[]>([]);
   const [constCat, setConstCat] = useState<any[]>([]);
   const [constVals, setConstVals] = useState<Record<number, string>>({});
@@ -485,6 +519,7 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], ale
           ...(esMedico ? {} : { medico_id: medicoId || undefined }),
           ...f,
           estado: firmar ? "firmada" : "borrador",
+          cita_id: citaId ?? undefined, // consulta vinculada: al guardar, la cita pasa a completada
           diagnosticos: diags.map((d) => ({ codigo: d.codigo, estado: d.estado })),
           constantes: Object.entries(constVals).filter(([, v]) => v !== "").map(([id, valor]) => ({ constante_id: Number(id), valor })),
           duracion_seg: Math.round((Date.now() - inicioRegistro.current) / 1000),
@@ -502,18 +537,23 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], ale
   );
 
   return (
-    <div className="modal-bg" onClick={() => onCerrar(false)}>
-      <div className="modal" style={{ width: "min(1150px,97vw)", maxHeight: "94vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
-        {/* Cabecera del gestor */}
-        <div className="fila" style={{ marginBottom: 4 }}>
+    // PANTALLA COMPLETA (modelo SANIAN): el gestor de consulta ocupa todo el
+    // panel — no es un modal. Cabecera fija con Volver + Guardar siempre a mano.
+    <div className="pantalla-consulta">
+      <div className="cab-consulta">
+        <div className="fila" style={{ marginBottom: 0, alignItems: "center" }}>
+          <button className="btn suave mini" onClick={() => onCerrar(false)}>← Volver</button>
           <div style={{ flex: 1 }}>
             <h3 style={{ margin: 0 }}>Registro clínico{nombrePaciente ? ` · ${nombrePaciente}` : ""}</h3>
             <p className="nota" style={{ margin: "2px 0 0" }}>
               {new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              {citaId ? <> · 🩺 consulta de la cita en curso{tratamientoNombre ? ` (${tratamientoNombre})` : ""} — al guardar, la cita quedará completada</> : null}
             </p>
           </div>
           <button className="btn oro" onClick={guardar}>💾 Guardar consulta</button>
         </div>
+      </div>
+      <div className="cuerpo-consulta">
         {alergiasActivas.length > 0 && (
           <p style={{ margin: "6px 0 10px" }}>
             {alergiasActivas.map((a: any) => (
@@ -622,6 +662,7 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], ale
       </div>
     </div>
   );
+  /* nota: .pantalla-consulta > .cab-consulta (fija) + .cuerpo-consulta > .grid-consulta */
 }
 
 /* ---------------- Buscador CIE-10 asíncrono ---------------- */
