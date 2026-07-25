@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { api, fmtFechaHora } from "./api";
 import HistoriaClinica, { Asignaciones } from "./HistoriaClinica";
 import ListaEspera from "./ListaEspera";
@@ -282,6 +282,14 @@ function FichaPaciente({ paciente, rol, onCerrar }: { paciente: any; rol?: strin
   const [altaCompleta, setAltaCompleta] = useState<boolean>(paciente.alta_completa ?? false);
   const [msg, setMsg] = useState("");
   const [verHistoria, setVerHistoria] = useState(false);
+  // La ficha está BLOQUEADA por defecto: se edita solo tras pulsar Editar / Completar ficha
+  const [editando, setEditando] = useState(false);
+  const inicial = useRef({ ...f }); // foto inicial para restaurar si se cancela
+  const faltan = [
+    !f.nombre.trim() && "nombre", !f.apellidos.trim() && "apellidos",
+    !f.dni.trim() && "DNI", !f.fecha_nacimiento && "fecha de nacimiento",
+  ].filter(Boolean) as string[];
+  const cancelarEdicion = () => { setF({ ...inicial.current }); setEditando(false); setMsg(""); };
   // Datos clínicos: solo dirección/admin desde esta ficha (recepción gestiona lo administrativo)
   const clinico = rol === "admin" || rol === "direccion";
 
@@ -296,6 +304,8 @@ function FichaPaciente({ paciente, rol, onCerrar }: { paciente: any; rol?: strin
         },
       });
       if (completarAlta) setAltaCompleta(true);
+      inicial.current = { ...f }; // lo guardado pasa a ser el nuevo estado base
+      setEditando(false);         // y la ficha vuelve a quedar bloqueada
       setMsg(completarAlta ? "Alta completada ✓" : "Guardado ✓");
     } catch (e: any) { setMsg(e.message); }
   }
@@ -309,35 +319,53 @@ function FichaPaciente({ paciente, rol, onCerrar }: { paciente: any; rol?: strin
   );
 
   return (
-    <div className="modal-bg" onClick={onCerrar}>
-      <div className="modal" style={{ width: "min(940px,96vw)", maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
-        {/* ═══ Cabecera: nombre grande + identificadores + acciones ═══ */}
-        <div className="fila" style={{ alignItems: "baseline", marginBottom: 2, flexWrap: "wrap" }}>
-          <h3 style={{ margin: 0 }}>{nombreCompleto || `Ficha · ${paciente.telefono}`}</h3>
-          <span className="nota" style={{ margin: 0 }}>
-            {paciente.telefono} · CIP{" "}
-            <code style={{ fontSize: 11, cursor: "copy" }} title={`${paciente.cip ?? ""} — clic para copiar`}
-              onClick={() => { if (paciente.cip) navigator.clipboard?.writeText(String(paciente.cip)); }}>
-              {paciente.cip ? `${String(paciente.cip).slice(0, 8)}… 📋` : "—"}
-            </code>
-          </span>
+    // PANTALLA COMPLETA (como el gestor de consulta): la ficha del paciente no es un modal
+    <div className="pantalla-consulta">
+      <div className="cab-consulta">
+        <div className="fila" style={{ alignItems: "center", marginBottom: 0, flexWrap: "wrap" }}>
+          <button className="btn suave mini" onClick={onCerrar}>← Volver</button>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <h3 style={{ margin: 0 }}>{nombreCompleto || `Ficha · ${paciente.telefono}`}</h3>
+            <p className="nota" style={{ margin: "2px 0 0" }}>
+              {paciente.telefono} · CIP{" "}
+              <code style={{ fontSize: 11, cursor: "copy" }} title={`${paciente.cip ?? ""} — clic para copiar`}
+                onClick={() => { if (paciente.cip) navigator.clipboard?.writeText(String(paciente.cip)); }}>
+                {paciente.cip ? `${String(paciente.cip).slice(0, 8)}… 📋` : "—"}
+              </code>
+            </p>
+          </div>
           {altaCompleta
             ? <span className="chip confirmada">alta completa</span>
             : <span className="chip pendiente">⏳ alta pendiente</span>}
-          <div style={{ flex: 1 }} />
           <button className="btn mini suave" onClick={() => exportarPaciente(paciente.id, "informe")}>🖨 Informe</button>
           <button className="btn mini suave" title="Para derechos de acceso y portabilidad (queda auditado)"
             onClick={() => exportarPaciente(paciente.id, "json")}>⬇ JSON</button>
         </div>
+      </div>
+      <div className="cuerpo-consulta">
         {!altaCompleta && (
           <p className="nota" style={{ margin: "4px 0 8px", color: "var(--ambar)" }}>
             ⏳ Alta pendiente — completar con el paciente en recepción (nombre, apellidos, DNI y fecha de nacimiento).
           </p>
         )}
 
-        {/* ═══ Datos del paciente en rejilla ═══ */}
+        {/* ═══ Datos del paciente en rejilla (BLOQUEADOS salvo en edición) ═══ */}
         <div className="card" style={{ marginTop: 8, marginBottom: 12 }}>
-          <p className="nota" style={{ marginTop: 0, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1.5, fontSize: 11.5 }}><b>Datos del paciente</b></p>
+          <div className="fila" style={{ marginBottom: 10 }}>
+            <p className="nota" style={{ margin: 0, textTransform: "uppercase", letterSpacing: 1.5, fontSize: 11.5 }}>
+              <b>Datos del paciente</b>{!editando && " 🔒"}
+            </p>
+            <div style={{ flex: 1 }} />
+            {!editando && (altaCompleta
+              ? <button className="btn mini suave" onClick={() => setEditando(true)}>✏ Editar</button>
+              : <button className="btn mini oro" onClick={() => setEditando(true)}>✎ Completar ficha</button>)}
+          </div>
+          {editando && !altaCompleta && faltan.length > 0 && (
+            <p className="nota" style={{ marginTop: 0, color: "var(--ambar)" }}>
+              Para completar el alta faltan: <b>{faltan.join(", ")}</b>. Sin ellos no se puede guardar — solo cancelar (la ficha se queda como estaba).
+            </p>
+          )}
+          <fieldset disabled={!editando} style={{ border: "none", margin: 0, padding: 0 }}>
           <div className="grid-ficha">
             <Campo e="Nombre"><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} /></Campo>
             <Campo e="Apellidos"><input value={f.apellidos} onChange={(e) => setF({ ...f, apellidos: e.target.value })} /></Campo>
@@ -352,6 +380,7 @@ function FichaPaciente({ paciente, rol, onCerrar }: { paciente: any; rol?: strin
             <Campo e="Email"><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Campo>
             <Campo e="Dirección" span><input value={f.direccion} onChange={(e) => setF({ ...f, direccion: e.target.value })} /></Campo>
           </div>
+          </fieldset>
         </div>
 
         <p className="nota">
@@ -391,12 +420,18 @@ function FichaPaciente({ paciente, rol, onCerrar }: { paciente: any; rol?: strin
         </table>
         <div className="fila" style={{ marginTop: 14, justifyContent: "flex-end" }}>
           <span className="nota">{msg}</span>
-          <button className="btn suave" onClick={onCerrar}>Cerrar</button>
-          {!altaCompleta && (
-            <button className="btn oro" title="Guarda la ficha y marca el alta como completa (exige nombre, apellidos, DNI y fecha de nacimiento)"
-              onClick={() => guardar(true)}>✓ Guardar y completar alta</button>
+          {!editando && <button className="btn suave" onClick={onCerrar}>Cerrar</button>}
+          {editando && (
+            <>
+              <button className="btn suave" title="Descarta los cambios: la ficha se queda como estaba al abrir"
+                onClick={cancelarEdicion}>↩ Cancelar</button>
+              {altaCompleta
+                ? <button className="btn oro" onClick={() => guardar(false)}>💾 Guardar cambios</button>
+                : <button className="btn oro" disabled={faltan.length > 0}
+                    title={faltan.length > 0 ? `Faltan: ${faltan.join(", ")}` : "Guarda la ficha y marca el alta como completa"}
+                    onClick={() => guardar(true)}>✓ Guardar y completar alta</button>}
+            </>
           )}
-          <button className="btn oro" onClick={() => guardar(false)}>Guardar cambios</button>
         </div>
       </div>
     </div>

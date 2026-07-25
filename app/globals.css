@@ -171,6 +171,8 @@ table.t tr:last-child td{border-bottom:none}
 .grid-ficha{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 14px}
 .grid-ficha label{display:block;margin-bottom:3px}
 @media(max-width:520px){.grid-ficha{grid-template-columns:1fr}}
+/* Campos bloqueados (ficha en modo lectura) */
+fieldset:disabled input,fieldset:disabled select,fieldset:disabled textarea{background:#f6f2ea;color:var(--gris);border-color:transparent;cursor:default}
 
 /* Pantalla de consulta a PANTALLA COMPLETA (modelo SANIAN, no modal) */
 .pantalla-consulta{position:fixed;inset:0;background:var(--marfil);z-index:200;overflow-y:auto}
