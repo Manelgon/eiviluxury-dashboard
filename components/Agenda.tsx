@@ -9,9 +9,24 @@ interface Cita {
   id: number; medico_id: number; inicio: string; estado: string;
   confirmada_paciente?: boolean; notas?: string | null;
   reactiva?: boolean; enfermera_id?: number | null; es_apoyo?: boolean;
+  llegada_at?: string | null; consulta_inicio_at?: string | null; consulta_fin_at?: string | null;
   pacientes?: { id: number; nombre: string | null; apellidos: string | null; telefono: string; alta_completa?: boolean } | null;
   tratamientos?: { nombre: string } | null;
 }
+
+const ETIQUETA_ESTADO: Record<string, string> = {
+  pendiente: "pendiente", confirmada: "confirmada", en_espera: "en espera",
+  en_consulta: "en consulta", completada: "completada", cancelada: "cancelada", no_show: "no vino",
+};
+const ICONO_ESTADO: Record<string, string> = { en_espera: "🪑", en_consulta: "🩺", completada: "✓" };
+
+/** Minutos de espera REAL: solo cuenta desde su hora de cita (llegar antes no es esperar). */
+const minEspera = (c: Cita) => {
+  if (!c.llegada_at) return null;
+  const desde = Math.max(new Date(c.llegada_at).getTime(), new Date(c.inicio).getTime());
+  const hasta = c.consulta_inicio_at ? new Date(c.consulta_inicio_at).getTime() : Date.now();
+  return Math.max(0, Math.round((hasta - desde) / 60000));
+};
 interface Medico { id: number; nombre: string; tipo?: string; medico_areas?: { area_id: number; areas: { nombre: string } | null }[]; horario?: { hora_inicio: string; hora_fin: string }[]; citas?: Cita[] }
 
 const sumaDias = (fecha: string, n: number) => {
@@ -26,7 +41,7 @@ const lunesDe = (fecha: string) => {
 const fmtDiaCorto = (fecha: string) =>
   new Date(`${fecha}T12:00:00Z`).toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 
-export default function Agenda({ medicoId = null }: { medicoId?: number | null }) {
+export default function Agenda({ medicoId = null, rol = "" }: { medicoId?: number | null; rol?: string }) {
   const [modo, setModo] = useState<Modo>("dia");
   const [fecha, setFecha] = useState(hoyISO());
   const [error, setError] = useState("");
@@ -71,7 +86,7 @@ export default function Agenda({ medicoId = null }: { medicoId?: number | null }
       <h2 className="seccion" style={{ textTransform: "none", letterSpacing: 1 }}>{titulo}</h2>
       {error && <div className="error">{error}</div>}
 
-      {modo === "dia" && <VistaDia fecha={fecha} refresco={refresco} soloId={soloId} onError={setError} onNueva={(m, h) => setNueva({ medico_id: m, hora: h })} onCambio={recargar} />}
+      {modo === "dia" && <VistaDia fecha={fecha} refresco={refresco} soloId={soloId} miFicha={medicoId} rol={rol} onError={setError} onNueva={(m, h) => setNueva({ medico_id: m, hora: h })} onCambio={recargar} />}
       {modo === "semana" && <VistaSemana fecha={fecha} refresco={refresco} soloId={soloId} onIrDia={(f) => { setFecha(f); setModo("dia"); }} />}
       {modo === "mes" && <VistaMes fecha={fecha} refresco={refresco} soloId={soloId} onIrDia={(f) => { setFecha(f); setModo("dia"); }} />}
 
@@ -90,11 +105,15 @@ export default function Agenda({ medicoId = null }: { medicoId?: number | null }
 
 /* ================= VISTA DÍA: tabla horas × doctores ================= */
 
-function VistaDia({ fecha, refresco, soloId, onError, onNueva, onCambio }:
-  { fecha: string; refresco: number; soloId: number | null; onError: (e: string) => void; onNueva: (medico: number, hora: string) => void; onCambio: () => void }) {
+function VistaDia({ fecha, refresco, soloId, miFicha, rol, onError, onNueva, onCambio }:
+  { fecha: string; refresco: number; soloId: number | null; miFicha: number | null; rol: string; onError: (e: string) => void; onNueva: (medico: number, hora: string) => void; onCambio: () => void }) {
   const [crudo, setCrudo] = useState<{ medicos: Medico[] } | null>(null);
   const [sel, setSel] = useState<Cita | null>(null);
   const datos = useMemo(() => crudo && ({ ...crudo, medicos: crudo.medicos.filter((m) => !soloId || m.id === soloId) }), [crudo, soloId]);
+  const esGestion = ["admin", "direccion", "recepcion"].includes(rol);
+  // Tic por minuto: mantiene fresco el "lleva X min esperando" sin recargar
+  const [, setTic] = useState(0);
+  useEffect(() => { const t = setInterval(() => setTic((n) => n + 1), 60_000); return () => clearInterval(t); }, []);
 
   useEffect(() => {
     api<{ medicos: Medico[] }>(`agenda?fecha=${fecha}`).then((d) => { setCrudo(d); onError(""); }).catch((e) => onError(e.message));
@@ -156,7 +175,7 @@ function VistaDia({ fecha, refresco, soloId, onError, onNueva, onCambio }:
                         <div key={c.id} className={`bloque-cita ${c.estado}`}
                           style={c.es_apoyo ? { opacity: 0.75, borderLeftStyle: "dashed" } : undefined}
                           onClick={(e) => { e.stopPropagation(); setSel(c); }}>
-                          <b>{fmtHora(c.inicio)}</b> {c.reactiva ? "⚡ " : ""}{c.pacientes && c.pacientes.alta_completa === false ? "⏳ " : ""}{[c.pacientes?.nombre, c.pacientes?.apellidos].filter(Boolean).join(" ") || c.pacientes?.telefono}
+                          <b>{fmtHora(c.inicio)}</b> {ICONO_ESTADO[c.estado] ? `${ICONO_ESTADO[c.estado]} ` : ""}{c.reactiva ? "⚡ " : ""}{c.pacientes && c.pacientes.alta_completa === false ? "⏳ " : ""}{[c.pacientes?.nombre, c.pacientes?.apellidos].filter(Boolean).join(" ") || c.pacientes?.telefono}
                           {c.es_apoyo && <small>apoyo</small>}
                           {c.tratamientos && <small>{c.tratamientos.nombre}</small>}
                         </div>
@@ -175,15 +194,41 @@ function VistaDia({ fecha, refresco, soloId, onError, onNueva, onCambio }:
         <div className="modal-bg" onClick={() => setSel(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>{fmtHora(sel.inicio)} · {[sel.pacientes?.nombre, sel.pacientes?.apellidos].filter(Boolean).join(" ") || sel.pacientes?.telefono}</h3>
-            <p className="nota">{sel.tratamientos?.nombre ?? "Sin tratamiento asignado"} · <span className={`chip ${sel.estado}`}>{sel.estado}{sel.confirmada_paciente ? " ✓" : ""}</span></p>
+            <p className="nota">{sel.tratamientos?.nombre ?? "Sin tratamiento asignado"} · <span className={`chip ${sel.estado}`}>{ETIQUETA_ESTADO[sel.estado] ?? sel.estado}{sel.confirmada_paciente ? " ✓" : ""}</span></p>
             {sel.pacientes && sel.pacientes.alta_completa === false && (
               <p className="nota" style={{ color: "var(--ambar)" }}>⏳ Paciente nuevo con <b>alta pendiente</b>: al llegar, completar su ficha en recepción (DNI, fecha de nacimiento y consentimiento de datos clínicos).</p>
             )}
+            {sel.estado === "en_espera" && sel.llegada_at && (
+              <p className="nota">
+                🪑 En sala de espera desde las <b>{fmtHora(sel.llegada_at)}</b>
+                {new Date(sel.llegada_at) < new Date(sel.inicio) && Date.now() < new Date(sel.inicio).getTime()
+                  ? <> · llegó antes de su hora (la espera cuenta desde las {fmtHora(sel.inicio)})</>
+                  : <> · lleva <b>{minEspera(sel)} min</b> esperando desde su hora</>}
+              </p>
+            )}
+            {sel.estado === "en_consulta" && (
+              <p className="nota">🩺 En consulta ahora mismo. Se cerrará sola al guardar la consulta (MEAP) del paciente, o con el botón Finalizar.</p>
+            )}
             {sel.notas && <p className="nota">Notas: {sel.notas}</p>}
             <div className="fila" style={{ justifyContent: "flex-end" }}>
-              {["pendiente", "confirmada"].includes(sel.estado) && (
+              {/* Llegada del paciente: la marca recepción/dirección/admin */}
+              {esGestion && ["pendiente", "confirmada"].includes(sel.estado) && (
+                <button className="btn mini oro" onClick={() => cambiar(sel.id, "en_espera")}>🪑 Ha llegado</button>
+              )}
+              {/* Empezar consulta: SOLO el titular de la cita (médico, directivo-médico o enfermera titular).
+                  Si la enfermera va de apoyo, la empieza el médico y el estado se comparte. */}
+              {miFicha === sel.medico_id && ["pendiente", "confirmada", "en_espera"].includes(sel.estado) && (
+                <button className="btn mini oro" onClick={() => cambiar(sel.id, "en_consulta")}>🩺 Empezar consulta</button>
+              )}
+              {miFicha === sel.medico_id && sel.estado === "en_consulta" && (
+                <button className="btn mini oro" onClick={() => cambiar(sel.id, "completada")}>✓ Finalizar consulta</button>
+              )}
+              {/* Corrección manual de gestión (por si el flujo no se siguió): marcar completada */}
+              {esGestion && ["pendiente", "confirmada", "en_espera", "en_consulta"].includes(sel.estado) && (
+                <button className="btn mini suave" onClick={() => cambiar(sel.id, "completada")}>Completada</button>
+              )}
+              {["pendiente", "confirmada", "en_espera"].includes(sel.estado) && (
                 <>
-                  <button className="btn mini suave" onClick={() => cambiar(sel.id, "completada")}>Completada</button>
                   <button className="btn mini suave" onClick={() => cambiar(sel.id, "no_show")}>No vino</button>
                   <button className="btn mini suave" onClick={() => { if (confirm("¿Cancelar esta cita?")) cambiar(sel.id, "cancelada"); }}>Cancelar cita</button>
                   <button className="btn mini suave" title="Cancela, apunta al paciente en lista de espera y Alexia le avisa por WhatsApp"

@@ -60,6 +60,8 @@ table.t tr:last-child td{border-bottom:none}
 .chip.cancelada{background:#f2e2e2;color:var(--rojo)}
 .chip.completada{background:#e5e5ef;color:#4d4d7c}
 .chip.no_show{background:#efdcdc;color:#8a3d3d}
+.chip.en_espera{background:#f7efdc;color:#8a6d1f}
+.chip.en_consulta{background:#e3ecef;color:#2f6577}
 
 /* Agenda */
 .agenda-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
@@ -127,6 +129,8 @@ table.t tr:last-child td{border-bottom:none}
 .bloque-cita.pendiente{border-left-color:var(--ambar)}
 .bloque-cita.completada{opacity:.55}
 .bloque-cita.no_show{border-left-color:var(--rojo);opacity:.7}
+.bloque-cita.en_espera{border-left-color:#d9a91a;background:#f9f1dd}
+.bloque-cita.en_consulta{border-left-color:#2f6577;background:#e7eff2}
 .bloque-cita:hover{filter:brightness(.97)}
 
 /* Vista mes */

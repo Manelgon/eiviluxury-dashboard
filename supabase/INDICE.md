@@ -23,6 +23,7 @@ Proyecto Supabase: `zohkencmpagiwxyljsiq` · Requiere haber aplicado antes los S
 | 22 | `patch-fk-clinicas.sql` | FKs directas a medicos/areas que faltaban en paciente_medico_area, paciente_diagnosticos y consulta_diagnosticos (los joins de Mis pacientes e historia fallaban con "Could not find a relationship") | ✅ |
 | 23 | `patch-meap.sql` | MEAP completo (SANIAN): columna `juicio_clinico` en consultas y consultas_versiones + trigger de versionado actualizado para vigilarla | ✅ |
 | 24 | `patch-docs-paciente.sql` | Cronómetro silencioso (`consultas.duracion_seg`, solo lo ve dirección en Métricas) + `paciente_documentos` y bucket privado `docs-pacientes` (fotos antes/después, consentimientos de tratamiento, pruebas) | ✅ |
+| 25 | `patch-flujo-consulta.sql` | Flujo del paciente en clínica: `citas.llegada_at/consulta_inicio_at/consulta_fin_at` + estados `en_espera` y `en_consulta` en el check de citas (llegada la marca recepción; consulta la empieza el titular; se completa al guardar el MEAP). La verificación final debe devolver 3 filas | ⬜ PENDIENTE |
 
 > Nota: los patches 1-9 ya aplicados conservan la nomenclatura antigua ("cliente") en su texto — NO se editan (regla del índice). El nombre actual de las tablas es el que fija el patch 10.
 

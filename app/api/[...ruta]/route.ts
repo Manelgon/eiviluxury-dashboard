@@ -135,7 +135,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           const { data: futuras } = await db().from("citas")
             .select("id, inicio, estado, pacientes(nombre, apellidos, telefono), tratamientos(nombre)")
             .or(`medico_id.eq.${r1},enfermera_id.eq.${r1}`)
-            .in("estado", ["pendiente", "confirmada"])
+            .in("estado", ["pendiente", "confirmada", "en_espera", "en_consulta"])
             .gte("inicio", new Date().toISOString()).order("inicio");
           if ((futuras?.length ?? 0) > 0) {
             return json({
@@ -218,7 +218,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
 
       const { data: citas, error: e2 } = await db()
         .from("citas")
-        .select("id, medico_id, enfermera_id, reactiva, inicio, fin, estado, confirmada_paciente, notas, pacientes(id, nombre, apellidos, telefono, alta_completa), tratamientos(nombre)")
+        .select("id, medico_id, enfermera_id, reactiva, inicio, fin, estado, confirmada_paciente, notas, llegada_at, consulta_inicio_at, consulta_fin_at, pacientes(id, nombre, apellidos, telefono, alta_completa), tratamientos(nombre)")
         .gte("inicio", ini)
         .lte("inicio", fin)
         .neq("estado", "cancelada")
@@ -260,7 +260,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         if (enfermera_id) {
           const { data: pisada } = await db().from("citas").select("id")
             .or(`medico_id.eq.${enfermera_id},enfermera_id.eq.${enfermera_id}`)
-            .in("estado", ["pendiente", "confirmada"])
+            .in("estado", ["pendiente", "confirmada", "en_espera", "en_consulta"])
             .lt("inicio", fin.toISOString()).gt("fin", inicio.toISOString()).limit(1);
           if ((pisada?.length ?? 0) > 0) return err("La enfermera de apoyo ya está ocupada en esa franja");
         }
@@ -280,16 +280,38 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         return json({ ok: true, id: data.id, reactiva });
       }
       if (metodo === "PATCH" && r1) {
-        // gestion: cualquier cita · medico: solo las suyas
+        // gestion: cualquier cita · titular clínico (médico, directivo-médico o enfermera titular): solo las suyas
         const { data: cita } = await db().from("citas")
-          .select("id, paciente_id, medico_id, tratamiento_id, inicio, estado, pacientes(id, nombre, telefono), medicos!citas_medico_id_fkey(nombre), tratamientos(nombre, area_id)")
+          .select("id, paciente_id, medico_id, enfermera_id, tratamiento_id, inicio, estado, llegada_at, consulta_inicio_at, consulta_fin_at, pacientes(id, nombre, telefono), medicos!citas_medico_id_fkey(nombre), tratamientos(nombre, area_id)")
           .eq("id", Number(r1)).maybeSingle();
         if (!cita) return err("Cita no encontrada", 404);
-        const esSuya = u.rol === "medico" && u.medico_id === cita.medico_id;
-        if (!puede(u, "gestion") && !esSuya) return err("Sin permiso", 403);
+        const esTitular = Boolean(u.medico_id) && u.medico_id === cita.medico_id;
+        if (!puede(u, "gestion") && !esTitular) return err("Sin permiso", 403);
         const { estado } = body;
-        if (!["pendiente", "confirmada", "cancelada", "completada", "no_show"].includes(estado)) return err("Estado no válido");
-        const { error } = await db().from("citas").update({ estado }).eq("id", Number(r1));
+        if (!["pendiente", "confirmada", "en_espera", "en_consulta", "cancelada", "completada", "no_show"].includes(estado)) return err("Estado no válido");
+
+        // ---- FLUJO DE CLÍNICA: llegada → consulta → completada, con tiempos ----
+        const ahora = new Date().toISOString();
+        const cambios: Record<string, unknown> = { estado };
+        if (estado === "en_espera") {
+          // La llegada la marca recepción/dirección/admin
+          if (!puede(u, "gestion")) return err("La llegada del paciente la marca recepción", 403);
+          if (!["pendiente", "confirmada"].includes(cita.estado)) return err(`La cita está "${cita.estado}"; no se puede marcar llegada`);
+          if (!(cita as any).llegada_at) cambios.llegada_at = ahora;
+        }
+        if (estado === "en_consulta") {
+          // Empezar consulta: SOLO el profesional titular de la cita (médico, directivo-médico
+          // o enfermera con cita propia). En consulta compartida (enfermera de apoyo) la empieza
+          // el MÉDICO; el estado vive en la cita, así que se comparte solo.
+          if (!esTitular) return err("La consulta la empieza el profesional titular de la cita", 403);
+          if (["cancelada", "completada", "no_show"].includes(cita.estado)) return err(`La cita está "${cita.estado}"; no se puede abrir consulta`);
+          if (!(cita as any).consulta_inicio_at) cambios.consulta_inicio_at = ahora;
+          if (!(cita as any).llegada_at) cambios.llegada_at = ahora; // pasó directo sin marcarse la llegada
+        }
+        if (estado === "completada" && (cita as any).consulta_inicio_at && !(cita as any).consulta_fin_at) {
+          cambios.consulta_fin_at = ahora; // cierre del contador de consulta
+        }
+        const { error } = await db().from("citas").update(cambios).eq("id", Number(r1));
         if (error) return err(error.message, 500);
         void auditar(u, "cita.cambiar_estado", { tipo: "cita", id: r1 }, { estado, paciente_id: cita.paciente_id });
 
@@ -918,7 +940,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         const { data: conflicto } = await db().from("citas")
           .select("id, inicio, fin, estado, pacientes(nombre, apellidos, telefono), tratamientos(nombre)")
           .or(`medico_id.eq.${medico_id},enfermera_id.eq.${medico_id}`)
-          .in("estado", ["pendiente", "confirmada"])
+          .in("estado", ["pendiente", "confirmada", "en_espera", "en_consulta"])
           .lt("inicio", fin).gt("fin", ini).order("inicio");
         if ((conflicto?.length ?? 0) > 0) {
           return json({
@@ -953,7 +975,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           db().from("horarios").select("id, dia_semana, hora_inicio, hora_fin").eq("medico_id", u.medico_id).order("dia_semana").order("hora_inicio"),
           db().from("bloqueos").select("id, inicio, fin, motivo").eq("medico_id", u.medico_id).gte("fin", new Date().toISOString()).order("inicio"),
           db().from("citas").select("id", { count: "exact", head: false }).eq("medico_id", u.medico_id)
-            .in("estado", ["pendiente", "confirmada"]).gte("inicio", new Date().toISOString()).limit(1),
+            .in("estado", ["pendiente", "confirmada", "en_espera", "en_consulta"]).gte("inicio", new Date().toISOString()).limit(1),
         ]);
         return json({ ficha, horarios: horarios ?? [], bloqueos: bloqueos ?? [], tiene_citas_futuras: (citasProx?.length ?? 0) > 0 });
       }
@@ -1184,6 +1206,22 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
             consulta_id: creada.id, constante_id: c.constante_id, paciente_id, valor: Number(c.valor), notas: c.notas ?? null,
           });
         }
+        // FLUJO DE CLÍNICA: guardar el MEAP CIERRA la cita vinculada → completada + fin del contador.
+        // Si no vino cita_id explícita, se busca la cita EN CONSULTA de este paciente con este médico.
+        let citaCerrar: number | null = cita_id ? Number(cita_id) : null;
+        if (!citaCerrar) {
+          const { data: abierta } = await db().from("citas").select("id")
+            .eq("paciente_id", Number(paciente_id)).eq("medico_id", Number(medicoId)).eq("estado", "en_consulta")
+            .order("inicio", { ascending: false }).limit(1).maybeSingle();
+          citaCerrar = abierta?.id ?? null;
+        }
+        if (citaCerrar) {
+          await db().from("citas")
+            .update({ estado: "completada", consulta_fin_at: new Date().toISOString() })
+            .eq("id", citaCerrar)
+            .in("estado", ["pendiente", "confirmada", "en_espera", "en_consulta"]);
+          void auditar(u, "cita.completada_por_consulta", { tipo: "cita", id: String(citaCerrar) }, { consulta_id: creada.id });
+        }
         void auditar(u, "consulta.crear", { tipo: "consulta", id: String(creada.id) },
           { paciente_id, medico_id: medicoId, area_id, motivo: motivo.trim(), estado: estado ?? "borrador",
             diagnosticos: (diagnosticos ?? []).map((d: any) => d.codigo) });
@@ -1360,7 +1398,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
       const [{ data: meds }, { data: cons }, { data: citas }, { data: asig }, { data: areasL }, { data: tratsL }] = await Promise.all([
         db().from("medicos").select("id, nombre, tipo").eq("activo", true).order("nombre"),
         db().from("consultas").select("medico_id, area_id, duracion_seg").gte("fecha", desde),
-        db().from("citas").select("medico_id, tratamiento_id, inicio, fin").eq("estado", "completada").gte("inicio", desde),
+        db().from("citas").select("medico_id, tratamiento_id, inicio, fin, llegada_at, consulta_inicio_at, consulta_fin_at").eq("estado", "completada").gte("inicio", desde),
         db().from("paciente_medico_area").select("medico_id").eq("activo", true),
         db().from("areas").select("id, nombre"),
         db().from("tratamientos").select("id, nombre, area_id"),
@@ -1371,6 +1409,21 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
         const con = arr.filter((c: any) => c.duracion_seg != null);
         return con.length ? Math.round(con.reduce((t: number, c: any) => t + c.duracion_seg, 0) / con.length / 60) : null;
       };
+      // Espera media en sala: SOLO cuenta desde la HORA DE LA CITA (llegar antes no es espera)
+      const esperaMedia = (arr: any[]) => {
+        const con = arr.filter((c: any) => c.llegada_at && c.consulta_inicio_at);
+        if (!con.length) return null;
+        const tot = con.reduce((s: number, c: any) =>
+          s + Math.max(0, new Date(c.consulta_inicio_at).getTime() - Math.max(new Date(c.llegada_at).getTime(), new Date(c.inicio).getTime())), 0);
+        return Math.round(tot / con.length / 60_000);
+      };
+      // Tiempo REAL en consulta (del "Empezar consulta" al cierre) — el médico no lo ve nunca
+      const consultaRealMedia = (arr: any[]) => {
+        const con = arr.filter((c: any) => c.consulta_inicio_at && c.consulta_fin_at);
+        if (!con.length) return null;
+        return Math.round(con.reduce((s: number, c: any) =>
+          s + (new Date(c.consulta_fin_at).getTime() - new Date(c.consulta_inicio_at).getTime()), 0) / con.length / 60_000);
+      };
 
       const medicos = (meds ?? []).map((m: any) => {
         const suyas = (cons ?? []).filter((c: any) => c.medico_id === m.id);
@@ -1379,6 +1432,8 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           medico_id: m.id, nombre: m.nombre, tipo: m.tipo,
           consultas_90d: suyas.length,
           media_min_consulta: mediaMin(suyas),
+          espera_media_min: esperaMedia(citasM),
+          consulta_real_media_min: consultaRealMedia(citasM),
           citas_completadas_90d: citasM.length,
           horas_citas_90d: horasDe(citasM),
           pacientes_asignados: (asig ?? []).filter((a: any) => a.medico_id === m.id).length,

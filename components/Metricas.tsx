@@ -71,15 +71,17 @@ export default function Metricas() {
       {rend && (
         <>
           <h2 className="seccion" style={{ marginTop: 26 }}>Actividad por médico · últimos 90 días</h2>
-          <p className="nota">El tiempo de consulta se mide automáticamente al registrar cada consulta (el médico no lo ve). Úsalo como orientación de carga y rendimiento, no como control minuto a minuto.</p>
+          <p className="nota">Los tiempos se miden automáticamente con el flujo de clínica (llegada → consulta → completada) y el cronómetro silencioso del MEAP — los médicos no los ven. La espera solo cuenta desde la hora de la cita (llegar antes no suma). Úsalo como orientación de carga y rendimiento, no como control minuto a minuto.</p>
           <table className="t">
-            <thead><tr><th>Médico</th><th>Consultas</th><th>⏱ Media consulta</th><th>Citas completadas</th><th>Horas en citas</th><th>Pacientes asignados</th></tr></thead>
+            <thead><tr><th>Médico</th><th>Consultas</th><th>⏱ Media consulta</th><th>🪑 Espera media</th><th>🩺 Consulta real</th><th>Citas completadas</th><th>Horas en citas</th><th>Pacientes asignados</th></tr></thead>
             <tbody>
               {rend.medicos.map((m: any) => (
                 <tr key={m.medico_id}>
                   <td>{m.nombre}{m.tipo === "enfermera" ? " · Enf." : ""}</td>
                   <td>{m.consultas_90d}</td>
                   <td>{m.media_min_consulta != null ? `${m.media_min_consulta} min` : "—"}</td>
+                  <td>{m.espera_media_min != null ? `${m.espera_media_min} min` : "—"}</td>
+                  <td>{m.consulta_real_media_min != null ? `${m.consulta_real_media_min} min` : "—"}</td>
                   <td>{m.citas_completadas_90d}</td>
                   <td>{m.horas_citas_90d} h</td>
                   <td>{m.pacientes_asignados}</td>

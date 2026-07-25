@@ -148,7 +148,7 @@ export default function Page() {
       )}
       <div className="main">
         {tab === "inicio" && !esMedico && <Inicio />}
-        {tab === "agenda" && <Agenda medicoId={me.medico_id ?? null} />}
+        {tab === "agenda" && <Agenda medicoId={me.medico_id ?? null} rol={me.rol} />}
         {tab === "mis-pacientes" && Boolean(me.medico_id) && me.rol !== "enfermera" && <MisPacientes />}
         {tab === "pacientes" && <Pacientes rol={me.rol} />}
         {tab === "config" && <Config sub={configSub} setSub={setConfigSub} rol={me.rol} tieneFicha={Boolean(me.medico_id)} />}
