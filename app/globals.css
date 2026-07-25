@@ -167,6 +167,11 @@ table.t tr:last-child td{border-bottom:none}
 /* Gestor de consulta (2 columnas en escritorio, 1 en móvil) */
 .grid-consulta{display:grid;grid-template-columns:1.45fr 1fr;gap:14px;align-items:start}
 
+/* Ficha del paciente: datos en rejilla adaptable */
+.grid-ficha{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 14px}
+.grid-ficha label{display:block;margin-bottom:3px}
+@media(max-width:520px){.grid-ficha{grid-template-columns:1fr}}
+
 /* Pantalla de consulta a PANTALLA COMPLETA (modelo SANIAN, no modal) */
 .pantalla-consulta{position:fixed;inset:0;background:var(--marfil);z-index:200;overflow-y:auto}
 .cab-consulta{position:sticky;top:0;z-index:5;background:var(--marfil);border-bottom:1px solid var(--linea);padding:12px 22px;box-shadow:0 4px 14px rgba(28,26,23,.06)}

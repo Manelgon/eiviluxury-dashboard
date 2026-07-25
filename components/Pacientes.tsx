@@ -300,37 +300,60 @@ function FichaPaciente({ paciente, rol, onCerrar }: { paciente: any; rol?: strin
     } catch (e: any) { setMsg(e.message); }
   }
 
+  const nombreCompleto = [f.nombre, f.apellidos].filter(Boolean).join(" ");
+  const Campo = ({ e, span, children }: { e: string; span?: boolean; children: any }) => (
+    <div style={span ? { gridColumn: "1 / -1" } : undefined}>
+      <label style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>{e}</label>
+      {children}
+    </div>
+  );
+
   return (
     <div className="modal-bg" onClick={onCerrar}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Ficha · {paciente.telefono}</h3>
-        <p className="nota" style={{ margin: "2px 0 8px" }}>
-          CIP interno: <code style={{ fontSize: 11.5 }}>{paciente.cip ?? "—"}</code> ·{" "}
+      <div className="modal" style={{ width: "min(940px,96vw)", maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        {/* ═══ Cabecera: nombre grande + identificadores + acciones ═══ */}
+        <div className="fila" style={{ alignItems: "baseline", marginBottom: 2, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0 }}>{nombreCompleto || `Ficha · ${paciente.telefono}`}</h3>
+          <span className="nota" style={{ margin: 0 }}>
+            {paciente.telefono} · CIP{" "}
+            <code style={{ fontSize: 11, cursor: "copy" }} title={`${paciente.cip ?? ""} — clic para copiar`}
+              onClick={() => { if (paciente.cip) navigator.clipboard?.writeText(String(paciente.cip)); }}>
+              {paciente.cip ? `${String(paciente.cip).slice(0, 8)}… 📋` : "—"}
+            </code>
+          </span>
           {altaCompleta
             ? <span className="chip confirmada">alta completa</span>
-            : <span className="chip pendiente">⏳ alta pendiente — completar con el paciente en recepción</span>}
-        </p>
-        <div className="fila" style={{ marginBottom: 10 }}>
-          <button className="btn mini suave" onClick={() => exportarPaciente(paciente.id, "informe")}>🖨 Informe imprimible</button>
-          <button className="btn mini suave" onClick={() => exportarPaciente(paciente.id, "json")}>⬇ Exportar JSON</button>
-          <span className="nota" style={{ margin: 0 }}>Para derechos de acceso y portabilidad (queda auditado)</span>
+            : <span className="chip pendiente">⏳ alta pendiente</span>}
+          <div style={{ flex: 1 }} />
+          <button className="btn mini suave" onClick={() => exportarPaciente(paciente.id, "informe")}>🖨 Informe</button>
+          <button className="btn mini suave" title="Para derechos de acceso y portabilidad (queda auditado)"
+            onClick={() => exportarPaciente(paciente.id, "json")}>⬇ JSON</button>
         </div>
-        <div className="campo" style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}><label>Nombre</label><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} /></div>
-          <div style={{ flex: 1 }}><label>Apellidos</label><input value={f.apellidos} onChange={(e) => setF({ ...f, apellidos: e.target.value })} /></div>
-        </div>
-        <div className="campo" style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}><label>DNI / NIE</label><input value={f.dni} onChange={(e) => setF({ ...f, dni: e.target.value })} /></div>
-          <div style={{ flex: 1 }}><label>Fecha de nacimiento</label><input type="date" value={f.fecha_nacimiento} onChange={(e) => setF({ ...f, fecha_nacimiento: e.target.value })} /></div>
-          <div style={{ flex: 1 }}><label>Sexo</label>
-            <select value={f.sexo} onChange={(e) => setF({ ...f, sexo: e.target.value })}>
-              <option value="">—</option><option value="mujer">Mujer</option><option value="hombre">Hombre</option><option value="otro">Otro</option>
-            </select>
+        {!altaCompleta && (
+          <p className="nota" style={{ margin: "4px 0 8px", color: "var(--ambar)" }}>
+            ⏳ Alta pendiente — completar con el paciente en recepción (nombre, apellidos, DNI y fecha de nacimiento).
+          </p>
+        )}
+
+        {/* ═══ Datos del paciente en rejilla ═══ */}
+        <div className="card" style={{ marginTop: 8, marginBottom: 12 }}>
+          <p className="nota" style={{ marginTop: 0, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1.5, fontSize: 11.5 }}><b>Datos del paciente</b></p>
+          <div className="grid-ficha">
+            <Campo e="Nombre"><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} /></Campo>
+            <Campo e="Apellidos"><input value={f.apellidos} onChange={(e) => setF({ ...f, apellidos: e.target.value })} /></Campo>
+            <Campo e="DNI / NIE"><input value={f.dni} onChange={(e) => setF({ ...f, dni: e.target.value })} /></Campo>
+            <Campo e="Fecha de nacimiento"><input type="date" value={f.fecha_nacimiento} onChange={(e) => setF({ ...f, fecha_nacimiento: e.target.value })} /></Campo>
+            <Campo e="Sexo">
+              <select value={f.sexo} onChange={(e) => setF({ ...f, sexo: e.target.value })}>
+                <option value="">—</option><option value="mujer">Mujer</option><option value="hombre">Hombre</option><option value="otro">Otro</option>
+              </select>
+            </Campo>
+            <Campo e="Teléfono de contacto"><input placeholder="Si difiere del WhatsApp" value={f.telefono_contacto} onChange={(e) => setF({ ...f, telefono_contacto: e.target.value })} /></Campo>
+            <Campo e="Email"><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Campo>
+            <Campo e="Dirección" span><input value={f.direccion} onChange={(e) => setF({ ...f, direccion: e.target.value })} /></Campo>
           </div>
         </div>
-        <div className="campo"><label>Dirección</label><input value={f.direccion} onChange={(e) => setF({ ...f, direccion: e.target.value })} /></div>
-        <div className="campo"><label>Email</label><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
-        <div className="campo"><label>Teléfono de contacto (si difiere del WhatsApp)</label><input value={f.telefono_contacto} onChange={(e) => setF({ ...f, telefono_contacto: e.target.value })} /></div>
+
         <p className="nota">
           Consentimiento RGPD: {paciente.consentimiento_rgpd ? `aceptado el ${new Date(paciente.consentimiento_fecha).toLocaleString("es-ES")}` : "no aceptado"}
         </p>
