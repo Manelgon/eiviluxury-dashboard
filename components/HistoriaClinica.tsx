@@ -22,7 +22,7 @@ interface Historia {
 export default function HistoriaClinica({ pacienteId, nombrePaciente }: { pacienteId: number; nombrePaciente?: string }) {
   const [h, setH] = useState<Historia | null>(null);
   const [p, setP] = useState<any | null>(null); // ficha administrativa + citas
-  const [pestana, setPestana] = useState<"resumen" | "consultas" | "diagnosticos" | "documentos" | "ficha">("resumen");
+  const [pestana, setPestana] = useState<"resumen" | "consultas" | "diagnosticos" | "areas" | "documentos" | "ficha">("resumen");
   const [error, setError] = useState("");
   const [nueva, setNueva] = useState(false);
 
@@ -78,6 +78,7 @@ export default function HistoriaClinica({ pacienteId, nombrePaciente }: { pacien
         <button className={pestana === "resumen" ? "on" : ""} onClick={() => setPestana("resumen")}>Resumen</button>
         <button className={pestana === "consultas" ? "on" : ""} onClick={() => setPestana("consultas")}>Consultas ({h.consultas.length})</button>
         <button className={pestana === "diagnosticos" ? "on" : ""} onClick={() => setPestana("diagnosticos")}>Diagnósticos</button>
+        <button className={pestana === "areas" ? "on" : ""} onClick={() => setPestana("areas")}>Áreas y tratamientos</button>
         <button className={pestana === "documentos" ? "on" : ""} onClick={() => setPestana("documentos")}>Documentos</button>
         <button className={pestana === "ficha" ? "on" : ""} onClick={() => setPestana("ficha")}>Ficha</button>
       </div>
@@ -164,6 +165,26 @@ export default function HistoriaClinica({ pacienteId, nombrePaciente }: { pacien
           ))}
           <p className="nota" style={{ marginBottom: 0 }}>Los diagnósticos se añaden y cambian de estado desde las consultas (la lista se sincroniza sola).</p>
         </div>
+      )}
+
+      {/* ═══ ÁREAS Y TRATAMIENTOS DEL PACIENTE ═══ */}
+      {pestana === "areas" && (
+        <>
+          <Asignaciones pacienteId={pacienteId} />
+          <div className="card" style={{ marginTop: 12 }}>
+            <p className="nota" style={{ marginTop: 0 }}><b>Tratamientos realizados</b> (citas completadas)</p>
+            {(p?.citas ?? []).filter((c: any) => c.estado === "completada").length === 0 &&
+              <p className="nota" style={{ margin: 0 }}>Todavía ninguno</p>}
+            {(p?.citas ?? []).filter((c: any) => c.estado === "completada").map((c: any) => (
+              <div className="linea-cita" key={c.id}>
+                <b style={{ minWidth: 120 }}>{fmtFechaHora(c.inicio)}</b>
+                <span>{c.tratamientos?.nombre ?? "Sin tratamiento indicado"} <em>· {c.medicos?.nombre ?? ""}</em></span>
+                <span className="chip completada">completada</span>
+              </div>
+            ))}
+            <p className="nota" style={{ marginBottom: 0 }}>El detalle clínico de cada sesión (producto, unidades, zonas) está en su consulta (pestaña Consultas).</p>
+          </div>
+        </>
       )}
 
       {/* ═══ DOCUMENTOS ═══ */}
@@ -509,6 +530,30 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], ale
     }]);
   }
 
+  // ¿Hay contenido sin guardar? (el tratamiento prefijado de la cita no cuenta como escrito)
+  const hayContenido = () =>
+    f.motivo.trim() !== "" || f.exploracion.trim() !== "" || f.juicio_clinico.trim() !== "" ||
+    f.plan.trim() !== "" || f.notas.trim() !== "" ||
+    f.tratamiento.trim() !== (tratamientoNombre ?? "").trim() ||
+    diags.length > 0 || Object.values(constVals).some((v) => v !== "");
+
+  // Salida protegida: con contenido sin guardar, avisar SIEMPRE antes de salir
+  function salir() {
+    if (!hayContenido()) { onCerrar(false); return; }
+    if (confirm("⚠ Esta consulta NO está guardada.\n\n¿Quieres GUARDAR y completar (finalizar) la consulta?\n\n· Aceptar → guardar y finalizar\n· Cancelar → decidir si sales sin guardar")) {
+      void guardar();
+      return;
+    }
+    if (confirm("¿Salir SIN guardar? Se perderá todo lo escrito en esta consulta.")) onCerrar(false);
+  }
+
+  // Cierre de pestaña/navegador con contenido sin guardar → aviso nativo del navegador
+  useEffect(() => {
+    const aviso = (e: BeforeUnloadEvent) => { if (hayContenido()) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", aviso);
+    return () => window.removeEventListener("beforeunload", aviso);
+  }, [f, diags, constVals]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function guardar() {
     if (!areaId || !f.motivo.trim()) { setError("El área y el motivo son obligatorios"); return; }
     try {
@@ -542,7 +587,7 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], ale
     <div className="pantalla-consulta">
       <div className="cab-consulta">
         <div className="fila" style={{ marginBottom: 0, alignItems: "center" }}>
-          <button className="btn suave mini" onClick={() => onCerrar(false)}>← Volver</button>
+          <button className="btn suave mini" onClick={salir}>← Volver</button>
           <div style={{ flex: 1 }}>
             <h3 style={{ margin: 0 }}>Registro clínico{nombrePaciente ? ` · ${nombrePaciente}` : ""}</h3>
             <p className="nota" style={{ margin: "2px 0 0" }}>
@@ -654,7 +699,7 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], ale
             </label>
             {error && <div className="error">{error}</div>}
             <div className="fila" style={{ justifyContent: "flex-end", marginBottom: 0 }}>
-              <button className="btn suave" onClick={() => onCerrar(false)}>Cancelar</button>
+              <button className="btn suave" onClick={salir}>Cancelar</button>
               <button className="btn oro" onClick={guardar}>Guardar consulta</button>
             </div>
           </div>

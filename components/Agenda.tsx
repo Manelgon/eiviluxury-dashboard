@@ -243,8 +243,9 @@ function VistaDia({ fecha, refresco, soloId, miFicha, rol, onError, onNueva, onC
                   <button className="btn mini suave" onClick={() => cambiar(sel.id, "completada")}>✓ Finalizar sin registro</button>
                 </>
               )}
-              {/* Corrección manual de gestión (por si el flujo no se siguió): marcar completada */}
-              {esGestion && ["pendiente", "confirmada", "en_espera", "en_consulta"].includes(sel.estado) && (
+              {/* Completada manual (gestión): SOLO si el paciente ya llegó o está en consulta —
+                  una cita sin llegada ni consulta no puede completarse (regla de Manel) */}
+              {esGestion && ["en_espera", "en_consulta"].includes(sel.estado) && (
                 <button className="btn mini suave" onClick={() => cambiar(sel.id, "completada")}>Completada</button>
               )}
               {["pendiente", "confirmada", "en_espera"].includes(sel.estado) && (

@@ -308,8 +308,11 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           if (!(cita as any).consulta_inicio_at) cambios.consulta_inicio_at = ahora;
           if (!(cita as any).llegada_at) cambios.llegada_at = ahora; // pasó directo sin marcarse la llegada
         }
-        if (estado === "completada" && (cita as any).consulta_inicio_at && !(cita as any).consulta_fin_at) {
-          cambios.consulta_fin_at = ahora; // cierre del contador de consulta
+        if (estado === "completada") {
+          // Sin llegada ni consulta empezada NO hay nada que completar (regla de Manel)
+          if (!["en_espera", "en_consulta"].includes(cita.estado))
+            return err("El paciente aún no ha llegado ni ha empezado la consulta: marca antes la llegada (🪑) o la consulta (🩺)");
+          if ((cita as any).consulta_inicio_at && !(cita as any).consulta_fin_at) cambios.consulta_fin_at = ahora; // cierre del contador
         }
         const { error } = await db().from("citas").update(cambios).eq("id", Number(r1));
         if (error) return err(error.message, 500);
@@ -1222,7 +1225,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
           await db().from("citas")
             .update({ estado: "completada", consulta_fin_at: new Date().toISOString() })
             .eq("id", citaCerrar)
-            .in("estado", ["pendiente", "confirmada", "en_espera", "en_consulta"]);
+            .in("estado", ["en_espera", "en_consulta"]); // sin llegada/consulta no se completa nada
           void auditar(u, "cita.completada_por_consulta", { tipo: "cita", id: String(citaCerrar) }, { consulta_id: creada.id });
         }
         void auditar(u, "consulta.crear", { tipo: "consulta", id: String(creada.id) },
