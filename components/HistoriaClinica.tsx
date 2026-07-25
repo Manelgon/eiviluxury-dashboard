@@ -464,8 +464,8 @@ function EditarConsulta({ c, onCerrar }: { c: any; onCerrar: (ok: boolean) => vo
    Carga la historia (alergias + lista de problemas) y delega
    en el mismo workspace NuevaConsulta de Mis pacientes.
    ============================================================ */
-export function PantallaConsulta({ pacienteId, citaId, nombrePaciente, tratamientoNombre, onCerrar }:
-  { pacienteId: number; citaId: number; nombrePaciente?: string; tratamientoNombre?: string | null; onCerrar: (guardada: boolean) => void }) {
+export function PantallaConsulta({ pacienteId, citaId, nombrePaciente, tratamientoNombre, preAreaId = null, preMedicoId = null, onCerrar }:
+  { pacienteId: number; citaId: number; nombrePaciente?: string; tratamientoNombre?: string | null; preAreaId?: number | null; preMedicoId?: number | null; onCerrar: (guardada: boolean) => void }) {
   const [h, setH] = useState<Historia | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -485,16 +485,18 @@ export function PantallaConsulta({ pacienteId, citaId, nombrePaciente, tratamien
   return (
     <NuevaConsulta pacienteId={pacienteId} nombrePaciente={nombrePaciente} ambito={h.ambito}
       problemas={h.diagnosticos} alergias={h.alergias}
-      citaId={citaId} tratamientoNombre={tratamientoNombre ?? null} onCerrar={onCerrar} />
+      citaId={citaId} tratamientoNombre={tratamientoNombre ?? null}
+      preAreaId={preAreaId} preMedicoId={preMedicoId} onCerrar={onCerrar} />
   );
 }
 
-function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], alergias = [], citaId = null, tratamientoNombre = null, onCerrar }:
-  { pacienteId: number; nombrePaciente?: string; ambito: number[] | null; problemas?: any[]; alergias?: any[]; citaId?: number | null; tratamientoNombre?: string | null; onCerrar: (guardada: boolean) => void }) {
+function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], alergias = [], citaId = null, tratamientoNombre = null, preAreaId = null, preMedicoId = null, onCerrar }:
+  { pacienteId: number; nombrePaciente?: string; ambito: number[] | null; problemas?: any[]; alergias?: any[]; citaId?: number | null; tratamientoNombre?: string | null; preAreaId?: number | null; preMedicoId?: number | null; onCerrar: (guardada: boolean) => void }) {
   const [areas, setAreas] = useState<any[]>([]);
   const [medicos, setMedicos] = useState<any[]>([]);
-  const [areaId, setAreaId] = useState<number | "">("");
-  const [medicoId, setMedicoId] = useState<number | "">("");
+  // Si la consulta viene de una CITA, área y médico llegan precargados de ella
+  const [areaId, setAreaId] = useState<number | "">(preAreaId ?? "");
+  const [medicoId, setMedicoId] = useState<number | "">(preMedicoId ?? "");
   const [f, setF] = useState({ motivo: "", exploracion: "", juicio_clinico: "", plan: "", tratamiento: tratamientoNombre ?? "", notas: "" });
   const [diags, setDiags] = useState<{ codigo: string; descripcion: string; estado: string; previo?: string }[]>([]);
   const [constCat, setConstCat] = useState<any[]>([]);
@@ -509,7 +511,10 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], ale
     api<any[]>("areas").then((a) => {
       const activas = a.filter((x: any) => x.activo && (!esMedico || ambito!.includes(x.id)));
       setAreas(activas);
-      if (activas.length === 1) setAreaId(activas[0].id);
+      // Prioridad: área de la cita (si es válida para quien firma) → única área → elegir a mano
+      if (preAreaId && activas.some((x: any) => x.id === preAreaId)) setAreaId(preAreaId);
+      else if (activas.length === 1) setAreaId(activas[0].id);
+      else if (preAreaId) setAreaId(""); // el área de la cita no es suya: que elija
     }).catch(() => {});
     if (!esMedico) api<any[]>("medicos").then((m) => setMedicos(m.filter((x: any) => x.activo && x.tipo !== "enfermera"))).catch(() => {});
     api<any[]>("constantes-catalogo").then(setConstCat).catch(() => {});

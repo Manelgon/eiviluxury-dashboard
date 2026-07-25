@@ -12,7 +12,7 @@ interface Cita {
   reactiva?: boolean; enfermera_id?: number | null; es_apoyo?: boolean;
   llegada_at?: string | null; consulta_inicio_at?: string | null; consulta_fin_at?: string | null;
   pacientes?: { id: number; nombre: string | null; apellidos: string | null; telefono: string; alta_completa?: boolean } | null;
-  tratamientos?: { nombre: string } | null;
+  tratamientos?: { nombre: string; area_id?: number | null } | null;
 }
 
 const ETIQUETA_ESTADO: Record<string, string> = {
@@ -113,7 +113,7 @@ function VistaDia({ fecha, refresco, soloId, miFicha, rol, onError, onNueva, onC
   const datos = useMemo(() => crudo && ({ ...crudo, medicos: crudo.medicos.filter((m) => !soloId || m.id === soloId) }), [crudo, soloId]);
   const esGestion = ["admin", "direccion", "recepcion"].includes(rol);
   // Pantalla de consulta (gestor MEAP, modelo SANIAN) abierta desde la cita
-  const [consulta, setConsulta] = useState<{ pacienteId: number; citaId: number; nombre: string; trat: string | null } | null>(null);
+  const [consulta, setConsulta] = useState<{ pacienteId: number; citaId: number; nombre: string; trat: string | null; areaId: number | null; medicoId: number | null } | null>(null);
   // Tic por minuto: mantiene fresco el "lleva X min esperando" sin recargar
   const [, setTic] = useState(0);
   useEffect(() => { const t = setInterval(() => setTic((n) => n + 1), 60_000); return () => clearInterval(t); }, []);
@@ -128,6 +128,8 @@ function VistaDia({ fecha, refresco, soloId, miFicha, rol, onError, onNueva, onC
         pacienteId: c.pacientes.id, citaId: c.id,
         nombre: [c.pacientes.nombre, c.pacientes.apellidos].filter(Boolean).join(" ") || c.pacientes.telefono,
         trat: c.tratamientos?.nombre ?? null,
+        areaId: c.tratamientos?.area_id ?? null, // área precargada: la del tratamiento de la cita
+        medicoId: c.medico_id,                    // médico precargado: el titular de la cita
       });
     } catch (e: any) { alert(e.message); }
   }
@@ -273,6 +275,8 @@ function VistaDia({ fecha, refresco, soloId, miFicha, rol, onError, onNueva, onC
           citaId={consulta.citaId}
           nombrePaciente={consulta.nombre}
           tratamientoNombre={consulta.trat}
+          preAreaId={consulta.areaId}
+          preMedicoId={consulta.medicoId}
           onCerrar={() => { setConsulta(null); onCambio(); }}
         />
       )}

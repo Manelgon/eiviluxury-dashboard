@@ -218,7 +218,7 @@ async function handler(req: NextRequest, ruta: string[]): Promise<NextResponse> 
 
       const { data: citas, error: e2 } = await db()
         .from("citas")
-        .select("id, medico_id, enfermera_id, reactiva, inicio, fin, estado, confirmada_paciente, notas, llegada_at, consulta_inicio_at, consulta_fin_at, pacientes(id, nombre, apellidos, telefono, alta_completa), tratamientos(nombre)")
+        .select("id, medico_id, enfermera_id, reactiva, inicio, fin, estado, confirmada_paciente, notas, llegada_at, consulta_inicio_at, consulta_fin_at, pacientes(id, nombre, apellidos, telefono, alta_completa), tratamientos(nombre, area_id)")
         .gte("inicio", ini)
         .lte("inicio", fin)
         .neq("estado", "cancelada")
