@@ -159,4 +159,52 @@ table.t tr:last-child td{border-bottom:none}
 .subtabs button{background:#efe9de;border:none;border-radius:999px;padding:7px 16px;font-size:13px;color:var(--gris)}
 .subtabs button.on{background:var(--tinta);color:#fff}
 .nota{font-size:12.5px;color:var(--muted);margin:8px 0}
-@media(max-width:640px){ .main{padding:14px 10px 40px} .topbar{gap:10px} .quien{display:none} }
+
+/* Gestor de consulta (2 columnas en escritorio, 1 en móvil) */
+.grid-consulta{display:grid;grid-template-columns:1.45fr 1fr;gap:14px;align-items:start}
+
+/* ============ RESPONSIVE MÓVIL ============ */
+@media(max-width:900px){
+  .grid-consulta{grid-template-columns:1fr}
+}
+@media(max-width:768px){
+  .main{padding:12px 10px 50px}
+  /* Topbar compacta con pestañas deslizables */
+  .topbar{gap:8px;padding:0 10px;height:52px}
+  .topbar .marca{font-size:12px;letter-spacing:2px}
+  .tabs{scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{padding:15px 10px;font-size:12.5px}
+  .quien{display:none}
+  .salir{padding:5px 9px;font-size:11px}
+  /* Menú de la tuerca a pantalla (casi) completa */
+  .menu-conf{position:fixed;left:8px;right:8px;top:58px;min-width:0;max-height:72vh;overflow-y:auto}
+  /* Tablas: scroll horizontal táctil en vez de romper el layout */
+  table.t{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table.t th,table.t td{white-space:nowrap}
+  /* Formularios: inputs a 16px (evita el auto-zoom de iOS) y controles que llenan la fila */
+  input,select,textarea{font-size:16px}
+  .fila > input,.fila > select{flex:1 1 150px;min-width:0}
+  .modal{padding:16px;border-radius:14px}
+  .modal h3{font-size:15.5px}
+  /* Métricas y widgets */
+  .kpis{grid-template-columns:repeat(2,1fr);gap:10px}
+  .kpi{padding:14px}
+  .kpi .v{font-size:24px}
+  .barras{gap:4px;height:120px}
+  .mini-kpis{flex-wrap:wrap;gap:12px}
+  /* Agenda */
+  .tabla-agenda td{min-width:104px}
+  .th-hora,.td-hora{width:46px;font-size:11px}
+  .bloque-cita{font-size:11.5px;padding:3px 6px}
+  .mes-grid{gap:4px}
+  .mes-dia{min-height:54px;padding:5px;font-size:12px;border-radius:8px}
+  .mes-num{font-size:10.5px}
+  /* Cards y chips algo más compactos */
+  .card{padding:12px;border-radius:12px}
+  .subtabs button{padding:6px 12px;font-size:12px}
+}
+@media(max-width:400px){
+  .topbar .marca{display:none}
+  .kpis{grid-template-columns:1fr 1fr}
+}

@@ -9,7 +9,7 @@ interface Cita {
   id: number; medico_id: number; inicio: string; estado: string;
   confirmada_paciente?: boolean; notas?: string | null;
   reactiva?: boolean; enfermera_id?: number | null; es_apoyo?: boolean;
-  pacientes?: { id: number; nombre: string | null; apellidos: string | null; telefono: string } | null;
+  pacientes?: { id: number; nombre: string | null; apellidos: string | null; telefono: string; alta_completa?: boolean } | null;
   tratamientos?: { nombre: string } | null;
 }
 interface Medico { id: number; nombre: string; tipo?: string; medico_areas?: { area_id: number; areas: { nombre: string } | null }[]; horario?: { hora_inicio: string; hora_fin: string }[]; citas?: Cita[] }
@@ -156,7 +156,7 @@ function VistaDia({ fecha, refresco, soloId, onError, onNueva, onCambio }:
                         <div key={c.id} className={`bloque-cita ${c.estado}`}
                           style={c.es_apoyo ? { opacity: 0.75, borderLeftStyle: "dashed" } : undefined}
                           onClick={(e) => { e.stopPropagation(); setSel(c); }}>
-                          <b>{fmtHora(c.inicio)}</b> {c.reactiva ? "⚡ " : ""}{[c.pacientes?.nombre, c.pacientes?.apellidos].filter(Boolean).join(" ") || c.pacientes?.telefono}
+                          <b>{fmtHora(c.inicio)}</b> {c.reactiva ? "⚡ " : ""}{c.pacientes && c.pacientes.alta_completa === false ? "⏳ " : ""}{[c.pacientes?.nombre, c.pacientes?.apellidos].filter(Boolean).join(" ") || c.pacientes?.telefono}
                           {c.es_apoyo && <small>apoyo</small>}
                           {c.tratamientos && <small>{c.tratamientos.nombre}</small>}
                         </div>
@@ -176,6 +176,9 @@ function VistaDia({ fecha, refresco, soloId, onError, onNueva, onCambio }:
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>{fmtHora(sel.inicio)} · {[sel.pacientes?.nombre, sel.pacientes?.apellidos].filter(Boolean).join(" ") || sel.pacientes?.telefono}</h3>
             <p className="nota">{sel.tratamientos?.nombre ?? "Sin tratamiento asignado"} · <span className={`chip ${sel.estado}`}>{sel.estado}{sel.confirmada_paciente ? " ✓" : ""}</span></p>
+            {sel.pacientes && sel.pacientes.alta_completa === false && (
+              <p className="nota" style={{ color: "var(--ambar)" }}>⏳ Paciente nuevo con <b>alta pendiente</b>: al llegar, completar su ficha en recepción (DNI, fecha de nacimiento y consentimiento de datos clínicos).</p>
+            )}
             {sel.notas && <p className="nota">Notas: {sel.notas}</p>}
             <div className="fila" style={{ justifyContent: "flex-end" }}>
               {["pendiente", "confirmada"].includes(sel.estado) && (

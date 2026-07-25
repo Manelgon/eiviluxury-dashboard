@@ -522,7 +522,7 @@ function NuevaConsulta({ pacienteId, nombrePaciente, ambito, problemas = [], ale
           </p>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1.45fr 1fr", gap: 14, alignItems: "start" }}>
+        <div className="grid-consulta">
           {/* ═══ IZQUIERDA: diagnósticos + MEAP ═══ */}
           <div>
             <Tarjeta titulo="Diagnósticos (CIE-10)">
